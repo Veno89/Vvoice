@@ -1,3 +1,7 @@
 fn main() {
-    tauri_build::build()
+    let mut config = prost_build::Config::new();
+    config.type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]");
+    config.compile_protos(&["proto/Mumble.proto"], &["proto/"]).unwrap();
+    
+    tauri_build::build();
 }

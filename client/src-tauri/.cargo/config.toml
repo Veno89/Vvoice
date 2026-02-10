@@ -1,0 +1,10 @@
+[env]
+PROTOC = "C:/Users/Zhitn/Desktop/Vvoice/backend/target/protoc/bin/protoc.exe"
+CMAKE = "C:/Program Files/CMake/bin/cmake.exe"
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+
+# Prepend CMake to PATH so audiopus build script can find it
+[env.PATH]
+value = "C:\\Program Files\\CMake\\bin;${PATH}"
+force = true
+relative = false

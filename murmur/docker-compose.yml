@@ -7,5 +7,6 @@ services:
     volumes:
       - ./data:/data
     environment:
-      - MULMUR_ICE_ReadWrite=true
+      - MUMBLE_SUPERUSER_PASSWORD=dev_password
+      - MUMBLE_ICE_READWRITE=true
     restart: unless-stopped

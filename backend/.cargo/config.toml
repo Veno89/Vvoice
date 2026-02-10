@@ -1,0 +1,4 @@
+[env]
+PROTOC = "C:/Users/Zhitn/Desktop/Vvoice/backend/target/protoc/bin/protoc.exe"
+
+
