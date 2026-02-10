@@ -1,0 +1,11 @@
+services:
+  murmur:
+    image: mumblevoip/mumble-server:latest
+    ports:
+      - "64738:64738"
+      - "64738:64738/udp"
+    volumes:
+      - ./data:/data
+    environment:
+      - MULMUR_ICE_ReadWrite=true
+    restart: unless-stopped
