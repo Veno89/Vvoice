@@ -294,6 +294,16 @@ impl VoiceClient {
                 cpal::SampleFormat::F32 => device.build_output_stream(
                     &config.into(),
                     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                        if let Ok(mut buf) = audio_buffer_playback.lock() {
+                            for sample in data.iter_mut() {
+                                if let Some(s) = buf.buffer.pop_front() {
+                                    *sample = s;
+                                } else {
+                                    *sample = 0.0;
+                                }
+                            }
+                        } else {
+                            for sample in data.iter_mut() {
                         let Ok(mut buf) = audio_buffer_playback.lock() else {
                             return;
                         };
@@ -388,6 +398,10 @@ impl VoiceClient {
                         sum_sq += sample * sample;
                     }
                     let rms = (sum_sq / data.len() as f32).sqrt();
+                    let threshold = if let Ok(v) = vad_threshold_capture.lock() {
+                        *v
+                    } else {
+                        return;
                     let threshold = match vad_threshold_capture.lock() {
                         Ok(value) => *value,
                         Err(_) => return,
@@ -516,6 +530,16 @@ impl VoiceClient {
                                                 match decoder.decode_float(opus_data, &mut pcm, false) {
                                                     Ok(samples) => {
                                                         // Push to buffer
+                                                        if let Ok(mut buf) = audio_buffer.lock() {
+                                                            for sample in pcm.iter().take(samples) {
+                                                                buf.buffer.push_back(*sample);
+                                                            }
+
+                                                            // Prevent buffer bloat
+                                                            if buf.buffer.len() > 48000 { // 1 sec
+                                                                let to_remove = buf.buffer.len() - 48000;
+                                                                buf.buffer.drain(0..to_remove);
+                                                            }
                                                         let Ok(mut buf) = audio_buffer.lock() else {
                                                             return;
                                                         };

@@ -19,10 +19,12 @@ export type ChatMessage = {
   timestamp?: number;
 };
 
-export type UserRemoveEvent = {
-  session: number;
-};
-
-export type ChannelRemoveEvent = {
-  channel_id: number;
-};
+export function mergeActiveUser(existing: ActiveUser, update: Partial<ActiveUser>): ActiveUser {
+  const merged: ActiveUser = { ...existing };
+  for (const [key, value] of Object.entries(update)) {
+    if (value !== null && value !== undefined) {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}

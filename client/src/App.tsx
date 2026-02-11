@@ -19,6 +19,9 @@ import { SettingsModal } from "./components/SettingsModal";
 import { ChatPanel } from "./components/ChatPanel";
 import type { ActiveUser, Channel, ChatMessage } from "./types/voice";
 
+
+import { ActiveUser, Channel, ChatMessage, mergeActiveUser } from "./types/mumble";
+
 export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -66,6 +69,7 @@ export default function App() {
           if (exists) {
             // Update existing: Partial update logic (don't overwrite with nulls)
             console.log("Updating existing user:", exists, "with:", user);
+            const merged = mergeActiveUser(exists, user);
             const merged: ActiveUser = { ...exists };
             for (const [key, value] of Object.entries(user)) {
               if (value !== null && value !== undefined) {
