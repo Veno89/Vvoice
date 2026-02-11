@@ -102,12 +102,11 @@ pub async fn handle_client(
         info!("Assigned Session ID {} to {}", session_id, username);
 
         // Notify existing peers about new user
-        let mut new_user_msg = UserState::default();
-        new_user_msg.session = Some(session_id);
-        new_user_msg.name = Some(username.clone());
-        new_user_msg.user_id = Some(session_id); // Temporary: Use session as user_id
-        new_user_msg.channel_id = Some(0); // Root
-        let packet = MumblePacket::UserState(new_user_msg);
+        let mut new_user_state = UserState::default();
+        new_user_state.session = Some(session_id);
+        new_user_state.name = Some(username.clone());
+        new_user_state.user_id = Some(session_id); // Temporary: Use session as user_id
+        new_user_state.channel_id = Some(0); // Root
 
         for peer in s.peers.values() {
             // 1. Tell new user about existing peer
