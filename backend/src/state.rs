@@ -1,6 +1,6 @@
+use crate::codec::{ChannelState, MumblePacket};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use crate::codec::{MumblePacket, ChannelState};
 
 pub type Tx = mpsc::UnboundedSender<MumblePacket>;
 
