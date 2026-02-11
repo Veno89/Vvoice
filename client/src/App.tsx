@@ -14,8 +14,6 @@ import {
   MoreVertical,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { useEffect } from "react";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { ChatPanel } from "./components/ChatPanel";
