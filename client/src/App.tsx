@@ -11,10 +11,11 @@ import {
   Radio,
   User,
   ShieldCheck,
-  MoreVertical,
+  MoreVertical
 } from "lucide-react";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { ChatWindow } from "./components/ChatWindow";
 import { useMumbleEvents } from "./hooks/useMumbleEvents";
 import { useVoiceConnection } from "./hooks/useVoiceConnection";
 
@@ -191,56 +192,15 @@ export default function App() {
                 <LoginModal onConnect={(username, password) => connect(username, password, audioSettings)} isConnecting={isConnecting} />
               </div>
             ) : (
-              <>
-                <div className="chat-messages-main">
-                  {messages.length === 0 && (
-                    <div className="empty-chat-state">
-                      <MessageSquare size={48} />
-                      <p>Welcome to the channel!</p>
-                    </div>
-                  )}
-                  {messages.map((msg, i) => {
-                    const actor = activeUsers.find(u => u.session === msg.actor)?.name || `User ${msg.actor}`;
-                    return (
-                      <div key={i} className="chat-message">
-                        <div className="message-header">
-                          <span className="message-author">{actor}</span>
-                          <span className="message-time">
-                            {msg.timestamp
-                              ? new Date(msg.timestamp * 1000).toLocaleTimeString()
-                              : new Date().toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <div className="message-content">{msg.message}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="chat-input-area-main">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (inputMessage.trim()) {
-                        void sendMessage(inputMessage);
-                        setInputMessage("");
-                      }
-                    }}
-                    className="chat-form"
-                  >
-                    <input
-                      type="text"
-                      value={inputMessage}
-                      onChange={e => setInputMessage(e.target.value)}
-                      placeholder={`Message ${channels.find(c => c.channel_id === (activeUsers.find(u => u.name === currentUsername)?.channel_id || 0))?.name || "General"}...`}
-                      className="chat-input"
-                    />
-                    <button type="submit" className="chat-send-btn">
-                      <Send size={16} />
-                    </button>
-                  </form>
-                </div>
-              </>
+              <ChatWindow
+                messages={messages}
+                activeUsers={activeUsers}
+                channels={channels}
+                currentUsername={currentUsername}
+                inputMessage={inputMessage}
+                onInputChange={setInputMessage}
+                onSendMessage={sendMessage}
+              />
             )}
           </AnimatePresence>
         </section>
