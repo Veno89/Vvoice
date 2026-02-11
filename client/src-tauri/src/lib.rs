@@ -134,6 +134,12 @@ pub fn run() {
                 .icon(tray_image)
                 .tooltip("Vvoice")
                 .build(app)?;
+            if let Ok(tray_image) = Image::from_bytes(include_bytes!("../icons/vvoice2.png")) {
+                let _tray = TrayIconBuilder::new()
+                    .icon(tray_image)
+                    .tooltip("Vvoice")
+                    .build(app)?;
+            }
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
@@ -148,5 +154,5 @@ pub fn run() {
             set_vad_threshold
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| eprintln!("error while running tauri application: {}", e));
 }

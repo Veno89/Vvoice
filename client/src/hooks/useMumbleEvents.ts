@@ -13,6 +13,27 @@ export function useMumbleEvents() {
     setMessages([]);
   }, []);
 
+import { useEffect, type Dispatch, type SetStateAction } from "react";
+import { listen } from "@tauri-apps/api/event";
+import {
+  ActiveUser,
+  Channel,
+  ChannelRemoveEvent,
+  ChatMessage,
+  UserRemoveEvent,
+} from "../types/mumble";
+
+type UseMumbleEventsParams = {
+  setActiveUsers: Dispatch<SetStateAction<ActiveUser[]>>;
+  setChannels: Dispatch<SetStateAction<Channel[]>>;
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+};
+
+export function useMumbleEvents({
+  setActiveUsers,
+  setChannels,
+  setMessages,
+}: UseMumbleEventsParams) {
   useEffect(() => {
     let unlistenUpdate: (() => void) | undefined;
     let unlistenRemove: (() => void) | undefined;
@@ -28,6 +49,18 @@ export function useMumbleEvents() {
           const exists = prev.find((u) => u.session === user.session);
           if (exists) {
             const merged: ActiveUser = { ...exists };
+      unlistenUpdate = await listen<Partial<ActiveUser> & { session: number }>(
+        "user_update",
+        (event) => {
+          const user = event.payload;
+
+          setActiveUsers((prev) => {
+            const existing = prev.find((u) => u.session === user.session);
+            if (!existing) {
+              return [...prev, { ...user, isSpeaking: false }];
+            }
+
+            const merged: ActiveUser = { ...existing };
             for (const [key, value] of Object.entries(user)) {
               if (value !== null && value !== undefined) {
                 merged[key] = value;
@@ -41,6 +74,13 @@ export function useMumbleEvents() {
       });
 
       unlistenRemove = await listen<{ session: number }>("user_remove", (event) => {
+
+            return prev.map((u) => (u.session === user.session ? merged : u));
+          });
+        },
+      );
+
+      unlistenRemove = await listen<UserRemoveEvent>("user_remove", (event) => {
         const remove = event.payload;
         setActiveUsers((prev) => prev.filter((u) => u.session !== remove.session));
       });
@@ -52,6 +92,11 @@ export function useMumbleEvents() {
           if (exists) {
             return prev.map((c) => (c.channel_id === channel.channel_id ? { ...c, ...channel } : c));
           }
+            return prev.map((c) =>
+              c.channel_id === channel.channel_id ? { ...c, ...channel } : c,
+            );
+          }
+
           return [...prev, channel];
         });
       });
@@ -60,6 +105,15 @@ export function useMumbleEvents() {
         const remove = event.payload;
         setChannels((prev) => prev.filter((c) => c.channel_id !== remove.channel_id));
       });
+      unlistenRemoveChannel = await listen<ChannelRemoveEvent>(
+        "channel_remove",
+        (event) => {
+          const remove = event.payload;
+          setChannels((prev) =>
+            prev.filter((c) => c.channel_id !== remove.channel_id),
+          );
+        },
+      );
 
       unlistenTextMessage = await listen<ChatMessage>("text_message", (event) => {
         setMessages((prev) => [...prev, event.payload]);
@@ -67,6 +121,7 @@ export function useMumbleEvents() {
     };
 
     void setupListeners();
+    setupListeners();
 
     return () => {
       unlistenUpdate?.();
@@ -83,4 +138,5 @@ export function useMumbleEvents() {
     messages,
     reset,
   };
+  }, [setActiveUsers, setChannels, setMessages]);
 }

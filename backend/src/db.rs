@@ -1,4 +1,5 @@
 use anyhow::Result;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use tracing::info;
@@ -47,6 +48,7 @@ impl Database {
                 let (base_url, db_name) = url
                     .rsplit_once('/')
                     .ok_or_else(|| anyhow::anyhow!("Invalid DATABASE_URL format"))?;
+                    .context("Invalid DATABASE_URL format")?;
                 let maintenance_url = format!("{}/postgres", base_url);
 
                 let maintenance_pool = PgPoolOptions::new()

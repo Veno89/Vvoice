@@ -94,12 +94,11 @@ pub async fn handle_client(
         info!("Assigned Session ID {} to {}", session_id, username);
 
         // Notify existing peers about new user
-        let mut new_user_msg = UserState::default();
-        new_user_msg.session = Some(session_id);
-        new_user_msg.name = Some(username.clone());
-        new_user_msg.user_id = Some(session_id); // Temporary: Use session as user_id
-        new_user_msg.channel_id = Some(0); // Root
-        let packet = MumblePacket::UserState(new_user_msg);
+        let mut new_user_state = UserState::default();
+        new_user_state.session = Some(session_id);
+        new_user_state.name = Some(username.clone());
+        new_user_state.user_id = Some(session_id); // Temporary: Use session as user_id
+        new_user_state.channel_id = Some(0); // Root
 
         for peer in s.peers.values() {
             // 1. Tell new user about existing peer
@@ -118,6 +117,7 @@ pub async fn handle_client(
                     MumblePacket::UserState(u) => u,
                     _ => unreachable!(),
                 })));
+                .send(MumblePacket::UserState(new_user_state.clone()));
         }
 
         s.add_peer(
@@ -211,38 +211,52 @@ pub async fn handle_client(
                              }
                              MumblePacket::UDPTunnel(msg) => {
                                  // Simple Relay (Voice Routing)
-                                 let s = state.lock().await;
-                                 let current_channel = s.peers.get(&session_id).map(|p| p.channel_id).unwrap_or(0);
-                                 let is_muted = s.peers.get(&session_id).map(|p| p.self_mute || p.self_deaf).unwrap_or(false);
-
-                                 if is_muted {
-                                     continue;
-                                 }
-
-                                 for peer in s.peers.values() {
-                                     if peer.session_id != session_id && peer.channel_id == current_channel {
-                                         // Forward to peers in same channel
-                                         let _ = peer.tx.send(MumblePacket::UDPTunnel(msg.clone()));
+                                 let recipients = {
+                                     let s = state.lock().await;
+                                     let Some(current_peer) = s.peers.get(&session_id) else {
+                                         continue;
+                                     };
+                                     if current_peer.self_mute || current_peer.self_deaf {
+                                         continue;
                                      }
-                                     // Echo Mode Logic
-                                     if peer.session_id == session_id && peer.echo_enabled {
-                                         let _ = peer.tx.send(MumblePacket::UDPTunnel(msg.clone()));
-                                     }
+
+                                     s.peers
+                                         .values()
+                                         .filter(|peer| {
+                                             (peer.session_id != session_id
+                                                 && peer.channel_id == current_peer.channel_id)
+                                                 || (peer.session_id == session_id && peer.echo_enabled)
+                                         })
+                                         .map(|peer| peer.tx.clone())
+                                         .collect::<Vec<_>>()
+                                 };
+
+                                 for recipient in recipients {
+                                     let _ = recipient.send(MumblePacket::UDPTunnel(msg.clone()));
                                  }
                              }
                              MumblePacket::TextMessage(msg) => {
-                                 let mut s = state.lock().await;
-
                                  // Check for commands
                                  let content = msg.message.clone();
                                  if content.starts_with("/echo") {
                                      if let Some(peer) = s.peers.get_mut(&session_id) {
                                          peer.echo_enabled = !peer.echo_enabled;
 
+                                     let echo_enabled = {
+                                         let mut s = state.lock().await;
+                                         if let Some(peer) = s.peers.get_mut(&session_id) {
+                                             peer.echo_enabled = !peer.echo_enabled;
+                                             Some(peer.echo_enabled)
+                                         } else {
+                                             None
+                                         }
+                                     };
+
+                                     if let Some(echo_enabled) = echo_enabled {
                                          // Send system confirmation
                                          let mut sys_msg = TextMessage::default();
                                          sys_msg.session = vec![session_id]; // Target self
-                                         sys_msg.message = format!("Echo mode: {}", if peer.echo_enabled { "ON" } else { "OFF" });
+                                         sys_msg.message = format!("Echo mode: {}", if echo_enabled { "ON" } else { "OFF" });
                                          let _ = tx.send(MumblePacket::TextMessage(sys_msg));
                                      }
                                  } else {
@@ -253,9 +267,13 @@ pub async fn handle_client(
                                          broadcast_msg.timestamp = Some(chrono::Utc::now().timestamp() as u64);
                                      }
 
-                                     // Broadcast to all
-                                     for peer in s.peers.values() {
-                                         let _ = peer.tx.send(MumblePacket::TextMessage(broadcast_msg.clone()));
+                                     let recipients = {
+                                         let s = state.lock().await;
+                                         s.peers.values().map(|peer| peer.tx.clone()).collect::<Vec<_>>()
+                                     };
+
+                                     for recipient in recipients {
+                                         let _ = recipient.send(MumblePacket::TextMessage(broadcast_msg.clone()));
                                      }
 
                                      // Persist to DB (Background)
