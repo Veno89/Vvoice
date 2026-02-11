@@ -129,6 +129,7 @@ message TextMessage {
 	repeated uint32 channel_id = 3;
 	repeated uint32 tree_id = 4;
 	required string message = 5;
+	optional uint64 timestamp = 6;
 }
 
 message PermissionDenied {

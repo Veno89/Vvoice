@@ -11,12 +11,15 @@ import {
   Radio,
   User,
   ShieldCheck,
-  Zap,
-  MoreVertical
+  MoreVertical,
+  MessageSquare,
+  Send
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
+import { LoginModal } from "./components/LoginModal";
+import { SettingsModal } from "./components/SettingsModal";
 
 export default function App() {
   const [isConnected, setIsConnected] = useState(false);
@@ -24,17 +27,24 @@ export default function App() {
   const [isDeafened, setIsDeafened] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
+  // Settings State
+  const [showSettings, setShowSettings] = useState(false);
+  const [audioSettings, setAudioSettings] = useState<{ device: string | null, vad: number }>({
+    device: null,
+    vad: 0.005
+  });
+
+  // Chat State
+  const [messages, setMessages] = useState<any[]>([]);
+  const [inputMessage, setInputMessage] = useState("");
+
   const [currentUser] = useState({
     name: "AllowedUser",
     status: "online",
     role: "User"
   });
 
-  const [channels] = useState([
-    { id: 0, name: "General", active: true },
-    { id: 1, name: "Gaming", active: false },
-    { id: 2, name: "AFK", active: false },
-  ]);
+  const [channels, setChannels] = useState<any[]>([]);
 
   // ... (inside component)
 
@@ -43,6 +53,9 @@ export default function App() {
   useEffect(() => {
     let unlistenUpdate: (() => void) | undefined;
     let unlistenRemove: (() => void) | undefined;
+    let unlistenUpdateChannel: (() => void) | undefined;
+    let unlistenRemoveChannel: (() => void) | undefined;
+    let unlistenTextMessage: (() => void) | undefined;
 
     const setupListeners = async () => {
       unlistenUpdate = await listen('user_update', (event: any) => {
@@ -53,8 +66,15 @@ export default function App() {
         setActiveUsers(prev => {
           const exists = prev.find(u => u.session === user.session);
           if (exists) {
-            // Update existing
-            return prev.map(u => u.session === user.session ? { ...u, ...user } : u);
+            // Update existing: Partial update logic (don't overwrite with nulls)
+            console.log("Updating existing user:", exists, "with:", user);
+            const merged = { ...exists };
+            for (const key in user) {
+              if (user[key] !== null && user[key] !== undefined) {
+                merged[key] = user[key];
+              }
+            }
+            return prev.map(u => u.session === user.session ? merged : u);
           } else {
             // Add new
             return [...prev, { ...user, isSpeaking: false }];
@@ -67,6 +87,28 @@ export default function App() {
         const remove = event.payload; // { session, ... }
         setActiveUsers(prev => prev.filter(u => u.session !== remove.session));
       });
+
+      unlistenUpdateChannel = await listen('channel_update', (event: any) => {
+        const channel = event.payload;
+        console.log("Channel Update:", channel);
+        setChannels(prev => {
+          const exists = prev.find(c => c.channel_id === channel.channel_id);
+          if (exists) {
+            return prev.map(c => c.channel_id === channel.channel_id ? { ...c, ...channel } : c);
+          } else {
+            return [...prev, channel];
+          }
+        });
+      });
+
+      unlistenRemoveChannel = await listen('channel_remove', (event: any) => {
+        const remove = event.payload;
+        setChannels(prev => prev.filter(c => c.channel_id !== remove.channel_id));
+      });
+      unlistenTextMessage = await listen('text_message', (event: any) => {
+        console.log("Text Message:", event.payload);
+        setMessages(prev => [...prev, event.payload]);
+      });
     };
 
     setupListeners();
@@ -74,15 +116,24 @@ export default function App() {
     return () => {
       if (unlistenUpdate) unlistenUpdate();
       if (unlistenRemove) unlistenRemove();
+      if (unlistenUpdateChannel) unlistenUpdateChannel();
+      if (unlistenRemoveChannel) unlistenRemoveChannel();
+      if (unlistenTextMessage) unlistenTextMessage();
     };
   }, []);
 
-  const handleConnect = async () => {
+  const handleConnect = async (username: string, password: string) => {
     setIsConnecting(true);
     try {
       // Clear list on connect
       setActiveUsers([]);
-      await invoke("connect_voice", { username: currentUser.name });
+      setChannels([]);
+      await invoke("connect_voice", {
+        username,
+        password,
+        inputDevice: audioSettings.device,
+        vadThreshold: audioSettings.vad
+      });
       setIsConnected(true);
     } catch (e) {
       console.error("Connection failed:", e);
@@ -97,6 +148,8 @@ export default function App() {
       await invoke("disconnect_voice");
       setIsConnected(false);
       setActiveUsers([]);
+      setChannels([]);
+      setMessages([]);
     } catch (e) {
       console.error("Disconnect failed:", e);
     }
@@ -108,7 +161,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <div className="logo-container">
-            <Zap size={18} fill="white" />
+            <img src="/vvoice2.png" alt="Vvoice" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
           </div>
           <span className="logo-text">Vvoice</span>
         </div>
@@ -118,16 +171,45 @@ export default function App() {
             <span>Voice Channels</span>
             <Settings size={12} className="icon-hover" />
           </div>
-          <div className="channel-list">
-            {channels.map(ch => (
-              <div
-                key={ch.id}
-                className={`channel-item ${ch.active ? 'active' : ''}`}
-              >
-                <Hash size={16} className="channel-icon" />
-                <span className="channel-name">{ch.name}</span>
-              </div>
-            ))}
+          <div className="channel-tree">
+            {channels.length === 0 && isConnected && (
+              <div style={{ padding: 20, color: 'var(--text-muted)' }}>Loading channels...</div>
+            )}
+            {channels.sort((a, b) => (a.channel_id - b.channel_id)).map(ch => {
+              const myUser = activeUsers.find(u => u.name === currentUser.name);
+              const currentChannelId = myUser?.channel_id || 0;
+              const isActive = ch.channel_id === currentChannelId;
+
+              return (
+                <div key={ch.channel_id} className="channel-group">
+                  <div
+                    className={`channel-item ${isActive ? 'active' : ''}`}
+                    onClick={() => {
+                      console.log("Clicked channel:", ch.channel_id);
+                      invoke('join_channel', { channelId: ch.channel_id })
+                        .then(() => console.log("Invoke join_channel success"))
+                        .catch(e => console.error("Invoke join_channel error:", e));
+                    }}
+                  >
+                    <Hash size={16} className="channel-icon" />
+                    <span className="channel-name">{ch.name || `Channel ${ch.channel_id}`}</span>
+                  </div>
+
+                  {/* Users in this channel */}
+                  <div className="channel-users">
+                    {activeUsers.filter(u => (u.channel_id || 0) === ch.channel_id).map(user => (
+                      <div key={user.session} className="sidebar-user">
+                        <div className="user-avatar-small">
+                          <User size={12} />
+                          {user.isSpeaking && <div className="speaking-dot"></div>}
+                        </div>
+                        <span className="sidebar-username">{user.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </nav>
 
@@ -147,21 +229,30 @@ export default function App() {
                 {currentUser.role}
               </div>
             </div>
-            <button className="icon-btn">
+            <button className="icon-btn" onClick={() => setShowSettings(true)}>
               <Settings size={16} />
             </button>
           </div>
 
           <div className="control-bar">
             <button
-              onClick={() => setIsMuted(!isMuted)}
+              onClick={() => {
+                const newState = !isMuted;
+                setIsMuted(newState);
+                invoke('set_mute', { mute: newState });
+              }}
               className={`icon-btn ${isMuted ? 'active' : ''}`}
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
             </button>
             <button
-              onClick={() => setIsDeafened(!isDeafened)}
+              onClick={() => {
+                const newState = !isDeafened;
+                setIsDeafened(newState);
+                invoke('set_deaf', { deaf: newState });
+                if (newState) setIsMuted(true); // Implicit mute logic
+              }}
               className={`icon-btn ${isDeafened ? 'active' : ''}`}
               title={isDeafened ? "Undeafen" : "Deafen"}
             >
@@ -169,8 +260,8 @@ export default function App() {
             </button>
             <div style={{ width: 1, backgroundColor: 'var(--border)', height: 16, alignSelf: 'center' }}></div>
             <button
-              onClick={isConnected ? handleDisconnect : handleConnect}
-              disabled={isConnecting}
+              onClick={isConnected ? handleDisconnect : undefined}
+              disabled={isConnecting || !isConnected}
               className={`icon-btn primary ${isConnected ? 'active' : ''} ${isConnecting ? 'loading' : ''}`}
               title={isConnected ? "Disconnect" : "Connect"}
             >
@@ -190,6 +281,7 @@ export default function App() {
             <span>General</span>
           </div>
           <div className="header-actions">
+
             <button
               className="btn-small secondary"
               onClick={() => invoke('send_message', { message: "/echo" })}
@@ -207,72 +299,77 @@ export default function App() {
           </div>
         </header>
 
-        <section className="content-body">
+        <section className="chat-container-main">
           <AnimatePresence mode="wait">
-            {!isConnected && !isConnecting ? (
-              <motion.div
-                key="splash"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="splash-container"
-              >
-                <div className="splash-icon">
-                  <Radio size={48} />
-                </div>
-                <h3 className="splash-title">Ready to Connect?</h3>
-                <p className="splash-desc">Jump into the conversation with crystal-clear audio powered by the Vvoice engine.</p>
-                <button
-                  onClick={handleConnect}
-                  className="btn-large"
-                >
-                  Connect to Bridge
-                </button>
-              </motion.div>
+            {!isConnected ? (
+              <div className="splash-container">
+                <LoginModal onConnect={handleConnect} isConnecting={isConnecting} />
+              </div>
             ) : (
-              <motion.div
-                key="grid"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="user-grid"
-              >
-                {activeUsers.map(user => (
-                  <motion.div
-                    key={user.id}
-                    layout
-                    initial={{ scale: 0.9, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    className={`user-tile ${user.isSpeaking ? 'speaking' : ''}`}
-                  >
-                    <div className="avatar-large">
-                      <User size={40} />
-                      {user.isSpeaking && (
-                        <motion.div
-                          animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.1, 0.3] }}
-                          transition={{ repeat: Infinity, duration: 2 }}
-                          style={{
-                            position: 'absolute',
-                            inset: -8,
-                            borderRadius: 24,
-                            backgroundColor: 'var(--primary)',
-                            zIndex: -1
-                          }}
-                        />
-                      )}
+              <>
+                <div className="chat-messages-main">
+                  {messages.length === 0 && (
+                    <div className="empty-chat-state">
+                      <MessageSquare size={48} />
+                      <p>Welcome to the channel!</p>
                     </div>
-                    <div className="tile-info">
-                      <div className="tile-name">{user.name}</div>
-                      <div className="speaking-status">
-                        {user.isSpeaking ? 'Speaking' : 'Idle'}
+                  )}
+                  {messages.map((msg, i) => {
+                    const actor = activeUsers.find(u => u.session === msg.actor)?.name || `User ${msg.actor}`;
+                    return (
+                      <div key={i} className="chat-message">
+                        <div className="message-header">
+                          <span className="message-author">{actor}</span>
+                          <span className="message-time">
+                            {msg.timestamp
+                              ? new Date(msg.timestamp * 1000).toLocaleTimeString()
+                              : new Date().toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <div className="message-content">{msg.message}</div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </motion.div>
+                    );
+                  })}
+                </div>
+
+                <div className="chat-input-area-main">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (inputMessage.trim()) {
+                        invoke('send_message', { message: inputMessage });
+                        setInputMessage("");
+                      }
+                    }}
+                    className="chat-form"
+                  >
+                    <input
+                      type="text"
+                      value={inputMessage}
+                      onChange={e => setInputMessage(e.target.value)}
+                      placeholder={`Message ${channels.find(c => c.channel_id === (activeUsers.find(u => u.name === currentUser.name)?.channel_id || 0))?.name || "General"}...`}
+                      className="chat-input"
+                    />
+                    <button type="submit" className="chat-send-btn">
+                      <Send size={16} />
+                    </button>
+                  </form>
+                </div>
+              </>
             )}
           </AnimatePresence>
         </section>
       </main>
-    </div>
+
+
+
+      <SettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        currentDevice={audioSettings.device}
+        currentVad={audioSettings.vad}
+        onSave={(device, vad) => setAudioSettings({ device, vad })}
+      />
+    </div >
   );
 }

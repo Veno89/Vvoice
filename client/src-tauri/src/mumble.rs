@@ -161,10 +161,19 @@ struct AudioBuffer {
 pub struct VoiceClient {
     tx: tokio::sync::mpsc::UnboundedSender<MumblePacket>,
     _shutdown: tokio::sync::oneshot::Sender<()>,
+    vad_threshold: Arc<Mutex<f32>>,
 }
 
 impl VoiceClient {
-    pub async fn connect(app: tauri::AppHandle, host: &str, port: u16, username: &str) -> Result<Self> {
+    pub fn list_input_devices() -> Vec<String> {
+        let host = cpal::default_host();
+        match host.input_devices() {
+            Ok(devices) => devices.filter_map(|d| d.name().ok()).collect(),
+            Err(_) => vec![],
+        }
+    }
+
+    pub async fn connect(app: tauri::AppHandle, host: &str, port: u16, username: &str, password: &str, input_device: Option<String>, vad_threshold: f32) -> Result<Self> {
         let addr = format!("{}:{}", host, port);
         // ... (connection logic, handshake)
         
@@ -212,6 +221,7 @@ impl VoiceClient {
 
         let mut auth = Authenticate::default();
         auth.username = Some(username.into());
+        auth.password = Some(password.into());
         sink.send(MumblePacket::Authenticate(auth)).await?;
 
         // Wait for ServerSync
@@ -224,11 +234,19 @@ impl VoiceClient {
                     println!("Server Version: {:?}", v.release);
                 }
                 Ok(MumblePacket::ServerSync(s)) => {
-                    session_id = s.session;
-                    println!("Handshake Complete! Session ID: {:?}", session_id);
-                    break;
-                }
-                Ok(MumblePacket::Reject(r)) => {
+                session_id = s.session;
+                println!("Handshake Complete! Session ID: {:?}", session_id);
+                break;
+            }
+            Ok(MumblePacket::ChannelState(c)) => {
+                println!("Handshake Channel: {:?}", c);
+                let _ = app.emit("channel_update", c);
+            }
+            Ok(MumblePacket::UserState(u)) => {
+                println!("Handshake User: {:?}", u);
+                let _ = app.emit("user_update", u);
+            }
+            Ok(MumblePacket::Reject(r)) => {
                     return Err(anyhow::anyhow!("Connection rejected: {:?}", r.reason));
                 }
                 Ok(MumblePacket::Ping(_)) => {} 
@@ -305,14 +323,35 @@ impl VoiceClient {
         // Clone for Audio Capture Thread
         let tx_audio = tx.clone();
         
-        // 4. Start Capture Thread
-        std::thread::spawn(move || {
-            // ... (Same Capture Code)
-            let host = cpal::default_host();
-            let device = match host.default_input_device() {
-                Some(d) => d,
-                None => return,
-            };
+        // Shared VAD threshold
+        let vad_threshold_outer = Arc::new(Mutex::new(vad_threshold));
+        let vad_threshold_clone = vad_threshold_outer.clone();
+        
+            // 4. Start Capture Thread
+            let vad_threshold_capture = vad_threshold_clone.clone();
+            let selected_device_name = input_device.clone();
+
+            std::thread::spawn(move || {
+                let host = cpal::default_host();
+                
+                // Select Device
+                let device = if let Some(name) = selected_device_name {
+                    host.input_devices().ok().and_then(|mut devices| {
+                        devices.find(|d| d.name().map(|n| n == name).unwrap_or(false))
+                    })
+                } else {
+                    host.default_input_device()
+                };
+
+                let device = match device {
+                    Some(d) => d,
+                    None => {
+                        eprintln!("No input device found");
+                        return;
+                    },
+                };
+                
+                println!("INFO: Using Input Device: {}", device.name().unwrap_or("Unknown".into()));
             
             let config = match device.default_input_config() {
                 Ok(c) => c,
@@ -331,6 +370,19 @@ impl VoiceClient {
             let stream = device.build_input_stream(
                 &config.into(),
                 move |data: &[f32], _: &_| {
+                    // VAD Check
+                    let mut sum_sq = 0.0;
+                    for &sample in data {
+                        sum_sq += sample * sample;
+                    }
+                    let rms = (sum_sq / data.len() as f32).sqrt();
+                    let threshold = *vad_threshold_capture.lock().unwrap();
+
+                    if rms < threshold {
+                        // Silence - do not transmit
+                        return;
+                    }
+
                     let i16_samples: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16).collect();
                      
                     if i16_samples.len() >= 480 {
@@ -392,12 +444,27 @@ impl VoiceClient {
                                     MumblePacket::Ping(_ping) => {},
                                     MumblePacket::UserState(user) => {
                                         // Emit event to Frontend
-                                        println!("User State Update: {:?}", user);
-                                        let _ = app.emit("user_update", user);
+                                        println!("RUST: Received UserState: {:?}", user);
+                                        match app.emit("user_update", user) {
+                                            Ok(_) => println!("RUST: Automatically emitted user_update"),
+                                            Err(e) => println!("RUST: Failed to emit user_update: {}", e),
+                                        }
                                     },
                                     MumblePacket::UserRemove(remove) => {
                                         println!("User Removed: {:?}", remove);
                                         let _ = app.emit("user_remove", remove);
+                                    },
+                                    MumblePacket::ChannelState(channel) => {
+                                        println!("Channel Update: {:?}", channel);
+                                        let _ = app.emit("channel_update", channel);
+                                    },
+                                    MumblePacket::ChannelRemove(remove) => {
+                                        println!("Channel Remove: {:?}", remove);
+                                        let _ = app.emit("channel_remove", remove);
+                                    },
+                                    MumblePacket::TextMessage(msg) => {
+                                        println!("RUST: Received TextMessage: {:?}", msg);
+                                        let _ = app.emit("text_message", msg);
                                     },
                                     MumblePacket::UDPTunnel(udp) => {
                                         // DECODE AND PLAY
@@ -471,12 +538,42 @@ impl VoiceClient {
             }
         });
 
-        Ok(Self { tx, _shutdown: shutdown_tx })
+        Ok(Self { tx, _shutdown: shutdown_tx, vad_threshold: vad_threshold_outer })
+    }
+
+    pub fn set_vad_threshold(&self, threshold: f32) {
+        if let Ok(mut t) = self.vad_threshold.lock() {
+            *t = threshold;
+            println!("VAD Threshold set to: {}", threshold);
+        }
     }
 
     pub fn send_message(&self, message: String) {
         let mut msg = TextMessage::default();
         msg.message = message;
         let _ = self.tx.send(MumblePacket::TextMessage(msg));
+    }
+
+    pub fn join_channel(&self, channel_id: u32) {
+        println!("RUST: Sending UserState to move to channel {}", channel_id);
+        let mut msg = UserState::default();
+        msg.channel_id = Some(channel_id);
+        let _ = self.tx.send(MumblePacket::UserState(msg));
+    }
+
+    pub fn set_mute(&self, mute: bool) {
+        let mut msg = UserState::default();
+        msg.self_mute = Some(mute);
+        let _ = self.tx.send(MumblePacket::UserState(msg));
+    }
+
+    pub fn set_deaf(&self, deaf: bool) {
+        let mut msg = UserState::default();
+        msg.self_deaf = Some(deaf);
+        // If deaf, also mute (usually client enforces this)
+        if deaf {
+            msg.self_mute = Some(true);
+        }
+        let _ = self.tx.send(MumblePacket::UserState(msg));
     }
 }
