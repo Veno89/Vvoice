@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
   Settings,
   Mic,
@@ -16,10 +16,9 @@ import {
   Send
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { useEffect } from "react";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { useMumbleEvents } from "./hooks/useMumbleEvents";
 
 export default function App() {
   const [isConnected, setIsConnected] = useState(false);
@@ -35,105 +34,25 @@ export default function App() {
   });
 
   // Chat State
-  const [messages, setMessages] = useState<any[]>([]);
   const [inputMessage, setInputMessage] = useState("");
 
-  const [currentUser] = useState({
-    name: "AllowedUser",
-    status: "online",
-    role: "User"
-  });
+  const [currentUsername, setCurrentUsername] = useState("AllowedUser");
+  const [currentUserRole] = useState("User");
 
-  const [channels, setChannels] = useState<any[]>([]);
-
-  // ... (inside component)
-
-  const [activeUsers, setActiveUsers] = useState<any[]>([]);
-
-  useEffect(() => {
-    let unlistenUpdate: (() => void) | undefined;
-    let unlistenRemove: (() => void) | undefined;
-    let unlistenUpdateChannel: (() => void) | undefined;
-    let unlistenRemoveChannel: (() => void) | undefined;
-    let unlistenTextMessage: (() => void) | undefined;
-
-    const setupListeners = async () => {
-      unlistenUpdate = await listen('user_update', (event: any) => {
-        console.log("User Update:", event.payload);
-        const user = event.payload;
-        // Payload matches Mumble UserState proto: { session, name, user_id, channel_id, ... }
-
-        setActiveUsers(prev => {
-          const exists = prev.find(u => u.session === user.session);
-          if (exists) {
-            // Update existing: Partial update logic (don't overwrite with nulls)
-            console.log("Updating existing user:", exists, "with:", user);
-            const merged = { ...exists };
-            for (const key in user) {
-              if (user[key] !== null && user[key] !== undefined) {
-                merged[key] = user[key];
-              }
-            }
-            return prev.map(u => u.session === user.session ? merged : u);
-          } else {
-            // Add new
-            return [...prev, { ...user, isSpeaking: false }];
-          }
-        });
-      });
-
-      unlistenRemove = await listen('user_remove', (event: any) => {
-        console.log("User Remove:", event.payload);
-        const remove = event.payload; // { session, ... }
-        setActiveUsers(prev => prev.filter(u => u.session !== remove.session));
-      });
-
-      unlistenUpdateChannel = await listen('channel_update', (event: any) => {
-        const channel = event.payload;
-        console.log("Channel Update:", channel);
-        setChannels(prev => {
-          const exists = prev.find(c => c.channel_id === channel.channel_id);
-          if (exists) {
-            return prev.map(c => c.channel_id === channel.channel_id ? { ...c, ...channel } : c);
-          } else {
-            return [...prev, channel];
-          }
-        });
-      });
-
-      unlistenRemoveChannel = await listen('channel_remove', (event: any) => {
-        const remove = event.payload;
-        setChannels(prev => prev.filter(c => c.channel_id !== remove.channel_id));
-      });
-      unlistenTextMessage = await listen('text_message', (event: any) => {
-        console.log("Text Message:", event.payload);
-        setMessages(prev => [...prev, event.payload]);
-      });
-    };
-
-    setupListeners();
-
-    return () => {
-      if (unlistenUpdate) unlistenUpdate();
-      if (unlistenRemove) unlistenRemove();
-      if (unlistenUpdateChannel) unlistenUpdateChannel();
-      if (unlistenRemoveChannel) unlistenRemoveChannel();
-      if (unlistenTextMessage) unlistenTextMessage();
-    };
-  }, []);
+  const { channels, activeUsers, messages, reset } = useMumbleEvents();
 
   const handleConnect = async (username: string, password: string) => {
     setIsConnecting(true);
     try {
       // Clear list on connect
-      setActiveUsers([]);
-      setChannels([]);
+      reset();
       await invoke("connect_voice", {
         username,
         password,
         inputDevice: audioSettings.device,
         vadThreshold: audioSettings.vad
       });
+      setCurrentUsername(username);
       setIsConnected(true);
     } catch (e) {
       console.error("Connection failed:", e);
@@ -147,9 +66,7 @@ export default function App() {
     try {
       await invoke("disconnect_voice");
       setIsConnected(false);
-      setActiveUsers([]);
-      setChannels([]);
-      setMessages([]);
+      reset();
     } catch (e) {
       console.error("Disconnect failed:", e);
     }
@@ -175,8 +92,8 @@ export default function App() {
             {channels.length === 0 && isConnected && (
               <div style={{ padding: 20, color: 'var(--text-muted)' }}>Loading channels...</div>
             )}
-            {channels.sort((a, b) => (a.channel_id - b.channel_id)).map(ch => {
-              const myUser = activeUsers.find(u => u.name === currentUser.name);
+            {[...channels].sort((a, b) => (a.channel_id - b.channel_id)).map(ch => {
+              const myUser = activeUsers.find(u => u.name === currentUsername);
               const currentChannelId = myUser?.channel_id || 0;
               const isActive = ch.channel_id === currentChannelId;
 
@@ -203,7 +120,7 @@ export default function App() {
                           <User size={12} />
                           {user.isSpeaking && <div className="speaking-dot"></div>}
                         </div>
-                        <span className="sidebar-username">{user.name}</span>
+                        <span className="sidebar-username">{user.name ?? `User ${user.session}`}</span>
                       </div>
                     ))}
                   </div>
@@ -223,10 +140,10 @@ export default function App() {
               <div className="status-indicator"></div>
             </div>
             <div className="user-details">
-              <div className="username">{currentUser.name}</div>
+              <div className="username">{currentUsername}</div>
               <div className="user-role">
                 <ShieldCheck size={10} style={{ color: 'var(--primary)' }} />
-                {currentUser.role}
+                {currentUserRole}
               </div>
             </div>
             <button className="icon-btn" onClick={() => setShowSettings(true)}>
@@ -347,7 +264,7 @@ export default function App() {
                       type="text"
                       value={inputMessage}
                       onChange={e => setInputMessage(e.target.value)}
-                      placeholder={`Message ${channels.find(c => c.channel_id === (activeUsers.find(u => u.name === currentUser.name)?.channel_id || 0))?.name || "General"}...`}
+                      placeholder={`Message ${channels.find(c => c.channel_id === (activeUsers.find(u => u.name === currentUsername)?.channel_id || 0))?.name || "General"}...`}
                       className="chat-input"
                     />
                     <button type="submit" className="chat-send-btn">
