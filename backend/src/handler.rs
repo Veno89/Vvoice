@@ -1,3 +1,4 @@
+use crate::auth_service::{authenticate_or_register, AuthDecision};
 use crate::chat_service::{process_text_message, ChatHandling};
 use crate::codec::{
     MumbleCodec, MumblePacket, Reject, ServerSync, TextMessage, UserRemove, UserState, Version,
@@ -7,10 +8,6 @@ use crate::session_service::process_user_state_update;
 use crate::state::{Peer, SharedState, Tx};
 use crate::voice_router::collect_voice_recipients;
 use anyhow::Result;
-use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-};
 use futures::{SinkExt, StreamExt};
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -45,43 +42,19 @@ pub async fn handle_client(
 
     // 2. Handshake: Expect Authenticate
     let username = if let Some(Ok(MumblePacket::Authenticate(auth))) = framed.next().await {
-        let username = auth.username.unwrap_or("Unknown".to_string());
-        let password = auth.password.unwrap_or_default();
-
-        info!("Client {} Authenticating as: {:?}", peer_addr, username);
-
-        // Check DB
-        if let Some(user) = db.get_user_by_username(&username).await? {
-            // User exists: Verify Password
-            let parsed_hash = PasswordHash::new(&user.password_hash)
-                .map_err(|e| anyhow::anyhow!("Invalid hash in DB: {}", e))?;
-
-            if Argon2::default()
-                .verify_password(password.as_bytes(), &parsed_hash)
-                .is_ok()
-            {
-                info!("User {} logged in successfully via DB.", username);
+        match authenticate_or_register(&db, auth).await? {
+            AuthDecision::Accepted { username } => {
+                info!("Client {} authenticated as: {:?}", peer_addr, username);
                 username
-            } else {
-                // Wrong password
-                let mut reject = Reject::default();
-                reject.reason = Some("Invalid password".into());
-                reject.r#type = Some(1); // 1 = WrongPW
-                framed.send(MumblePacket::Reject(reject)).await?;
-                anyhow::bail!("Invalid password for user {}", username);
             }
-        } else {
-            // User does not exist: Register (Auto-register for now)
-            info!("User {} not found. Registering...", username);
-            let salt = SaltString::generate(&mut OsRng);
-            let password_hash = Argon2::default()
-                .hash_password(password.as_bytes(), &salt)
-                .map_err(|e| anyhow::anyhow!("Hashing failed: {}", e))?
-                .to_string();
-
-            let _new_user = db.create_user(&username, &password_hash).await?;
-            info!("User {} registered successfully.", username);
-            username
+            AuthDecision::Rejected(reject) => {
+                let reason = reject
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "Authentication rejected".to_string());
+                framed.send(MumblePacket::Reject(reject)).await?;
+                anyhow::bail!("Authentication failed for {}: {}", peer_addr, reason);
+            }
         }
     } else {
         anyhow::bail!("Expected Authenticate packet");

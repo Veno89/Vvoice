@@ -1,3 +1,4 @@
+mod auth_service;
 mod cert;
 mod chat_service;
 mod codec;
