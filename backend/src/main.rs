@@ -1,29 +1,31 @@
-mod db;
 mod cert;
+mod chat_service;
 mod codec;
-mod state;
+mod db;
 mod handler;
+mod state;
+mod voice_router;
 
-use tokio::net::TcpListener;
-use tokio_rustls::TlsAcceptor;
-use anyhow::Result;
-use tracing::{info, error};
+use anyhow::{Context, Result};
 use db::Database;
 use dotenvy::dotenv;
-use tokio::sync::Mutex;
-use std::sync::Arc;
-use state::SharedState;
 use handler::handle_client;
+use state::SharedState;
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio::sync::Mutex;
+use tokio_rustls::TlsAcceptor;
+use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
     tracing_subscriber::fmt::init();
-    
+
     info!("Starting Vvoice Server...");
 
     // 1. Initialize Database
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let db_url = std::env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
     let db = Database::connect(&db_url).await?;
 
     // 2. Generate/Load Certs
@@ -34,7 +36,7 @@ async fn main() -> Result<()> {
     let addr = "0.0.0.0:64738";
     let listener = TcpListener::bind(addr).await?;
     info!("Listening on {}", addr);
-    
+
     let mut shared_state = SharedState::new();
 
     // 4. Load Channels from DB
@@ -45,7 +47,9 @@ async fn main() -> Result<()> {
         chan_state.parent = db_chan.parent_id.map(|id| id as u32);
         chan_state.name = Some(db_chan.name);
         chan_state.description = db_chan.description;
-        shared_state.channels.insert(chan_state.channel_id.unwrap(), chan_state);
+        if let Some(channel_id) = chan_state.channel_id {
+            shared_state.channels.insert(channel_id, chan_state);
+        }
     }
     info!("Loaded {} channels from DB", shared_state.channels.len());
 
@@ -56,20 +60,16 @@ async fn main() -> Result<()> {
         let acceptor = acceptor.clone();
         let state = state.clone();
         let db = db.clone();
-        
+
         info!("New connection from {}", peer_addr);
 
         tokio::spawn(async move {
             match acceptor.accept(stream).await {
                 Ok(stream) => {
                     info!("TLS Handshake successful with {}", peer_addr);
-                    
-                    // Spawn client handler
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_client(stream, state, peer_addr, db).await {
-                            error!("Client error: {}", e);
-                        }
-                    });
+                    if let Err(e) = handle_client(stream, state, peer_addr, db).await {
+                        error!("Client error: {}", e);
+                    }
                 }
                 Err(e) => {
                     error!("TLS Handshake failed: {}", e);
