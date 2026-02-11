@@ -190,20 +190,13 @@ impl VoiceClient {
 
         let socket = TcpStream::connect(&addr).await?;
         let mut root_store = RootCertStore::empty();
-        let native_certs = rustls_native_certs::load_native_certs();
-        for cert in native_certs.certs {
+        let native_certs = rustls_native_certs::load_native_certs()?;
+        for cert in native_certs {
             let _ = root_store.add(cert);
         }
 
         if root_store.is_empty() {
-            return Err(anyhow::anyhow!("No system root certificates found"));
-        }
-
-        if !native_certs.errors.is_empty() {
-            tracing::warn!(
-                "Encountered {} invalid native certificates while building root store",
-                native_certs.errors.len()
-            );
+             tracing::warn!("No system root certificates found (or failed to load). SSL may fail.");
         }
 
         let config = ClientConfig::builder()
