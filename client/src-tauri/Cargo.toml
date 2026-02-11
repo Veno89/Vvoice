@@ -37,4 +37,5 @@ opus = "0.3"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 prost-build = "0.12"
+protoc-bin-vendored = "3"
 
