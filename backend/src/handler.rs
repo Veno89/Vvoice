@@ -95,10 +95,7 @@ pub async fn handle_client(
             // 2. Tell existing peer about new user
             let _ = peer
                 .tx
-                .send(MumblePacket::UserState(Clone::clone(match &packet {
-                    MumblePacket::UserState(u) => u,
-                    _ => unreachable!(),
-                })));
+                .send(MumblePacket::UserState(new_user_state.clone()));
         }
 
         s.add_peer(
