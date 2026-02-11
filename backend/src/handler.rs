@@ -2,7 +2,7 @@ use crate::codec::{
     MumbleCodec, MumblePacket, Reject, ServerSync, TextMessage, UserRemove, UserState, Version,
 };
 use crate::db::Database;
-use crate::state::{Peer, SharedState};
+use crate::state::{Peer, SharedState, Tx};
 use anyhow::Result;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -15,6 +15,12 @@ use tokio::sync::{mpsc, Mutex};
 use tokio_rustls::server::TlsStream;
 use tokio_util::codec::Framed;
 use tracing::{error, info};
+
+fn broadcast(packet: MumblePacket, recipients: &[Tx]) {
+    for recipient in recipients {
+        let _ = recipient.send(packet.clone());
+    }
+}
 
 pub async fn handle_client(
     stream: TlsStream<TcpStream>,
@@ -212,27 +218,28 @@ pub async fn handle_client(
                                  // Simple Relay (Voice Routing)
                                  let recipients = {
                                      let s = state.lock().await;
-                                     let Some(current_peer) = s.peers.get(&session_id) else {
-                                         continue;
-                                     };
-                                     if current_peer.self_mute || current_peer.self_deaf {
-                                         continue;
-                                     }
+                                     let current_channel = s.peers.get(&session_id).map(|p| p.channel_id).unwrap_or(0);
+                                     let is_muted = s.peers.get(&session_id).map(|p| p.self_mute || p.self_deaf).unwrap_or(false);
 
-                                     s.peers
-                                         .values()
-                                         .filter(|peer| {
-                                             (peer.session_id != session_id
-                                                 && peer.channel_id == current_peer.channel_id)
-                                                 || (peer.session_id == session_id && peer.echo_enabled)
-                                         })
-                                         .map(|peer| peer.tx.clone())
-                                         .collect::<Vec<_>>()
+                                     if is_muted {
+                                         Vec::new()
+                                     } else {
+                                         s.peers
+                                             .values()
+                                             .filter(|peer| {
+                                                 (peer.session_id != session_id && peer.channel_id == current_channel)
+                                                     || (peer.session_id == session_id && peer.echo_enabled)
+                                             })
+                                             .map(|peer| peer.tx.clone())
+                                             .collect::<Vec<_>>()
+                                     }
                                  };
 
-                                 for recipient in recipients {
-                                     let _ = recipient.send(MumblePacket::UDPTunnel(msg.clone()));
+                                 if recipients.is_empty() {
+                                     continue;
                                  }
+
+                                 broadcast(MumblePacket::UDPTunnel(msg), &recipients);
                              }
                              MumblePacket::TextMessage(msg) => {
                                  // Check for commands
@@ -255,14 +262,10 @@ pub async fn handle_client(
                                          broadcast_msg.timestamp = Some(chrono::Utc::now().timestamp() as u64);
                                      }
 
-                                     let recipients = {
-                                         let s = state.lock().await;
-                                         s.peers.values().map(|peer| peer.tx.clone()).collect::<Vec<_>>()
-                                     };
+                                     let recipients = s.peers.values().map(|peer| peer.tx.clone()).collect::<Vec<_>>();
+                                     drop(s);
 
-                                     for recipient in recipients {
-                                         let _ = recipient.send(MumblePacket::TextMessage(broadcast_msg.clone()));
-                                     }
+                                     broadcast(MumblePacket::TextMessage(broadcast_msg), &recipients);
 
                                      // Persist to DB (Background)
                                      let db_clone = db.clone();
@@ -276,54 +279,59 @@ pub async fn handle_client(
                                  }
                              }
                              MumblePacket::UserState(state_update) => {
-                                 // Handle Channel Move
-                                 let mut s = state.lock().await;
-                                 if let Some(target_channel) = state_update.channel_id {
-                                     if let Some(peer) = s.peers.get_mut(&session_id) {
-                                         peer.channel_id = target_channel;
-                                         info!("User {} moved to channel {}", peer.username, target_channel);
+                                 let (channel_update, state_delta, recipients) = {
+                                     let mut s = state.lock().await;
+                                     let mut channel_update: Option<UserState> = None;
 
-                                         // Broadcast update to all
-                                         let mut update = UserState::default();
-                                         update.session = Some(session_id);
-                                         update.channel_id = Some(target_channel);
+                                     // Handle Channel Move
+                                     if let Some(target_channel) = state_update.channel_id {
+                                         if let Some(peer) = s.peers.get_mut(&session_id) {
+                                             peer.channel_id = target_channel;
+                                             info!("User {} moved to channel {}", peer.username, target_channel);
 
-                                         for p in s.peers.values() {
-                                             let _ = p.tx.send(MumblePacket::UserState(update.clone()));
+                                             let mut update = UserState::default();
+                                             update.session = Some(session_id);
+                                             update.channel_id = Some(target_channel);
+                                             channel_update = Some(update);
                                          }
                                      }
-                                 }
 
-                                 // Handle Mute/Deaf
-                                 let mut changes = false;
-                                 let mut update = UserState::default();
-                                 update.session = Some(session_id);
+                                     // Handle Mute/Deaf
+                                     let mut changes = false;
+                                     let mut update = UserState::default();
+                                     update.session = Some(session_id);
 
-                                 if let Some(mute) = state_update.self_mute {
-                                     if let Some(peer) = s.peers.get_mut(&session_id) {
-                                         peer.self_mute = mute;
-                                         update.self_mute = Some(mute);
-                                         changes = true;
+                                     if let Some(mute) = state_update.self_mute {
+                                         if let Some(peer) = s.peers.get_mut(&session_id) {
+                                             peer.self_mute = mute;
+                                             update.self_mute = Some(mute);
+                                             changes = true;
+                                         }
                                      }
-                                 }
-                                 if let Some(deaf) = state_update.self_deaf {
-                                      if let Some(peer) = s.peers.get_mut(&session_id) {
-                                          peer.self_deaf = deaf;
-                                          update.self_deaf = Some(deaf);
-                                          // Implicitly mute if deaf
-                                          if deaf {
-                                              peer.self_mute = true;
-                                              update.self_mute = Some(true);
+                                     if let Some(deaf) = state_update.self_deaf {
+                                          if let Some(peer) = s.peers.get_mut(&session_id) {
+                                              peer.self_deaf = deaf;
+                                              update.self_deaf = Some(deaf);
+                                              // Implicitly mute if deaf
+                                              if deaf {
+                                                  peer.self_mute = true;
+                                                  update.self_mute = Some(true);
+                                              }
+                                              changes = true;
                                           }
-                                          changes = true;
-                                      }
+                                     }
+
+                                     let recipients = s.peers.values().map(|p| p.tx.clone()).collect::<Vec<_>>();
+                                     (channel_update, if changes { Some(update) } else { None }, recipients)
+                                 };
+
+                                 if let Some(update) = channel_update {
+                                     broadcast(MumblePacket::UserState(update), &recipients);
                                  }
 
-                                 if changes {
+                                 if let Some(update) = state_delta {
                                      info!("User {} updated state: Mute={:?} Deaf={:?}", username, update.self_mute, update.self_deaf);
-                                     for p in s.peers.values() {
-                                         let _ = p.tx.send(MumblePacket::UserState(update.clone()));
-                                     }
+                                     broadcast(MumblePacket::UserState(update), &recipients);
                                  }
                              }
                              _ => {}
