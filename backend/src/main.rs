@@ -3,6 +3,7 @@ mod chat_service;
 mod codec;
 mod db;
 mod handler;
+mod session_service;
 mod state;
 mod voice_router;
 

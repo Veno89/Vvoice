@@ -3,6 +3,7 @@ use crate::codec::{
     MumbleCodec, MumblePacket, Reject, ServerSync, TextMessage, UserRemove, UserState, Version,
 };
 use crate::db::Database;
+use crate::session_service::process_user_state_update;
 use crate::state::{Peer, SharedState, Tx};
 use crate::voice_router::collect_voice_recipients;
 use anyhow::Result;
@@ -262,59 +263,17 @@ pub async fn handle_client(
                                  }
                              }
                              MumblePacket::UserState(state_update) => {
-                                 let (channel_update, state_delta, recipients) = {
+                                 let session_update = {
                                      let mut s = state.lock().await;
-                                     let mut channel_update: Option<UserState> = None;
-
-                                     // Handle Channel Move
-                                     if let Some(target_channel) = state_update.channel_id {
-                                         if let Some(peer) = s.peers.get_mut(&session_id) {
-                                             peer.channel_id = target_channel;
-                                             info!("User {} moved to channel {}", peer.username, target_channel);
-
-                                             let mut update = UserState::default();
-                                             update.session = Some(session_id);
-                                             update.channel_id = Some(target_channel);
-                                             channel_update = Some(update);
-                                         }
-                                     }
-
-                                     // Handle Mute/Deaf
-                                     let mut changes = false;
-                                     let mut update = UserState::default();
-                                     update.session = Some(session_id);
-
-                                     if let Some(mute) = state_update.self_mute {
-                                         if let Some(peer) = s.peers.get_mut(&session_id) {
-                                             peer.self_mute = mute;
-                                             update.self_mute = Some(mute);
-                                             changes = true;
-                                         }
-                                     }
-                                     if let Some(deaf) = state_update.self_deaf {
-                                          if let Some(peer) = s.peers.get_mut(&session_id) {
-                                              peer.self_deaf = deaf;
-                                              update.self_deaf = Some(deaf);
-                                              // Implicitly mute if deaf
-                                              if deaf {
-                                                  peer.self_mute = true;
-                                                  update.self_mute = Some(true);
-                                              }
-                                              changes = true;
-                                          }
-                                     }
-
-                                     let recipients = s.peers.values().map(|p| p.tx.clone()).collect::<Vec<_>>();
-                                     (channel_update, if changes { Some(update) } else { None }, recipients)
+                                     process_user_state_update(&mut s, session_id, &username, state_update)
                                  };
 
-                                 if let Some(update) = channel_update {
-                                     broadcast(MumblePacket::UserState(update), &recipients);
+                                 if let Some(update) = session_update.channel_update {
+                                     broadcast(MumblePacket::UserState(update), &session_update.recipients);
                                  }
 
-                                 if let Some(update) = state_delta {
-                                     info!("User {} updated state: Mute={:?} Deaf={:?}", username, update.self_mute, update.self_deaf);
-                                     broadcast(MumblePacket::UserState(update), &recipients);
+                                 if let Some(update) = session_update.state_delta {
+                                     broadcast(MumblePacket::UserState(update), &session_update.recipients);
                                  }
                              }
                              _ => {}
