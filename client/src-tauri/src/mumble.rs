@@ -398,6 +398,8 @@ impl VoiceClient {
                         sum_sq += sample * sample;
                     }
                     let rms = (sum_sq / data.len() as f32).sqrt();
+                    let threshold = match vad_threshold_capture.lock() {
+                        Ok(v) => *v,
                     let threshold = if let Ok(v) = vad_threshold_capture.lock() {
                         *v
                     } else {
@@ -531,6 +533,8 @@ impl VoiceClient {
                                                     Ok(samples) => {
                                                         // Push to buffer
                                                         if let Ok(mut buf) = audio_buffer.lock() {
+                                                            for i in 0..samples {
+                                                                buf.buffer.push_back(pcm[i]);
                                                             for sample in pcm.iter().take(samples) {
                                                                 buf.buffer.push_back(*sample);
                                                             }

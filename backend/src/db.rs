@@ -1,3 +1,4 @@
+use anyhow::Result;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -46,6 +47,7 @@ impl Database {
                 info!("Target database does not exist. Attempting to create it...");
                 let (base_url, db_name) = url
                     .rsplit_once('/')
+                    .ok_or_else(|| anyhow::anyhow!("Invalid DATABASE_URL format"))?;
                     .context("Invalid DATABASE_URL format")?;
                 let maintenance_url = format!("{}/postgres", base_url);
 

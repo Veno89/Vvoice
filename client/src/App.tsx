@@ -16,6 +16,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { useMumbleEvents } from "./hooks/useMumbleEvents";
 import { ChatPanel } from "./components/ChatPanel";
 import type { ActiveUser, Channel, ChatMessage } from "./types/voice";
 
@@ -45,6 +46,7 @@ export default function App() {
     role: "User"
   });
 
+  const { channels, activeUsers, messages, reset } = useMumbleEvents();
   const [channels, setChannels] = useState<Channel[]>([]);
 
   // ... (inside component)
@@ -128,8 +130,7 @@ export default function App() {
     setIsConnecting(true);
     try {
       // Clear list on connect
-      setActiveUsers([]);
-      setChannels([]);
+      reset();
       await invoke("connect_voice", {
         username,
         password,
@@ -149,9 +150,7 @@ export default function App() {
     try {
       await invoke("disconnect_voice");
       setIsConnected(false);
-      setActiveUsers([]);
-      setChannels([]);
-      setMessages([]);
+      reset();
     } catch (e) {
       console.error("Disconnect failed:", e);
     }
@@ -177,7 +176,7 @@ export default function App() {
             {channels.length === 0 && isConnected && (
               <div style={{ padding: 20, color: 'var(--text-muted)' }}>Loading channels...</div>
             )}
-            {channels.sort((a, b) => (a.channel_id - b.channel_id)).map(ch => {
+            {[...channels].sort((a, b) => (a.channel_id - b.channel_id)).map(ch => {
               const myUser = activeUsers.find(u => u.name === currentUser.name);
               const currentChannelId = myUser?.channel_id || 0;
               const isActive = ch.channel_id === currentChannelId;

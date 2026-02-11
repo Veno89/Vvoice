@@ -113,6 +113,10 @@ pub async fn handle_client(
             // 2. Tell existing peer about new user
             let _ = peer
                 .tx
+                .send(MumblePacket::UserState(Clone::clone(match &packet {
+                    MumblePacket::UserState(u) => u,
+                    _ => unreachable!(),
+                })));
                 .send(MumblePacket::UserState(new_user_state.clone()));
         }
 
@@ -235,6 +239,9 @@ pub async fn handle_client(
                                  // Check for commands
                                  let content = msg.message.clone();
                                  if content.starts_with("/echo") {
+                                     if let Some(peer) = s.peers.get_mut(&session_id) {
+                                         peer.echo_enabled = !peer.echo_enabled;
+
                                      let echo_enabled = {
                                          let mut s = state.lock().await;
                                          if let Some(peer) = s.peers.get_mut(&session_id) {

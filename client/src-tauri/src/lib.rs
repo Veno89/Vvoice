@@ -129,6 +129,11 @@ pub fn run() {
             client: Mutex::new(None),
         })
         .setup(|app| {
+            let tray_image = Image::from_bytes(include_bytes!("../icons/vvoice2.png"))?;
+            let _tray = TrayIconBuilder::new()
+                .icon(tray_image)
+                .tooltip("Vvoice")
+                .build(app)?;
             if let Ok(tray_image) = Image::from_bytes(include_bytes!("../icons/vvoice2.png")) {
                 let _tray = TrayIconBuilder::new()
                     .icon(tray_image)
