@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
   Settings,
   Mic,
@@ -12,14 +12,14 @@ import {
   User,
   ShieldCheck,
   MoreVertical,
-  MessageSquare,
-  Send
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
+import { ChatPanel } from "./components/ChatPanel";
+import type { ActiveUser, Channel, ChatMessage } from "./types/voice";
 
 export default function App() {
   const [isConnected, setIsConnected] = useState(false);
@@ -35,7 +35,7 @@ export default function App() {
   });
 
   // Chat State
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
 
   const [currentUser] = useState({
@@ -44,11 +44,11 @@ export default function App() {
     role: "User"
   });
 
-  const [channels, setChannels] = useState<any[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
 
   // ... (inside component)
 
-  const [activeUsers, setActiveUsers] = useState<any[]>([]);
+  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
 
   useEffect(() => {
     let unlistenUpdate: (() => void) | undefined;
@@ -58,7 +58,7 @@ export default function App() {
     let unlistenTextMessage: (() => void) | undefined;
 
     const setupListeners = async () => {
-      unlistenUpdate = await listen('user_update', (event: any) => {
+      unlistenUpdate = await listen<Partial<ActiveUser> & { session: number }>('user_update', (event) => {
         console.log("User Update:", event.payload);
         const user = event.payload;
         // Payload matches Mumble UserState proto: { session, name, user_id, channel_id, ... }
@@ -68,10 +68,10 @@ export default function App() {
           if (exists) {
             // Update existing: Partial update logic (don't overwrite with nulls)
             console.log("Updating existing user:", exists, "with:", user);
-            const merged = { ...exists };
-            for (const key in user) {
-              if (user[key] !== null && user[key] !== undefined) {
-                merged[key] = user[key];
+            const merged: ActiveUser = { ...exists };
+            for (const [key, value] of Object.entries(user)) {
+              if (value !== null && value !== undefined) {
+                merged[key] = value;
               }
             }
             return prev.map(u => u.session === user.session ? merged : u);
@@ -82,13 +82,13 @@ export default function App() {
         });
       });
 
-      unlistenRemove = await listen('user_remove', (event: any) => {
+      unlistenRemove = await listen<{ session: number }>('user_remove', (event) => {
         console.log("User Remove:", event.payload);
         const remove = event.payload; // { session, ... }
         setActiveUsers(prev => prev.filter(u => u.session !== remove.session));
       });
 
-      unlistenUpdateChannel = await listen('channel_update', (event: any) => {
+      unlistenUpdateChannel = await listen<Channel>('channel_update', (event) => {
         const channel = event.payload;
         console.log("Channel Update:", channel);
         setChannels(prev => {
@@ -101,11 +101,11 @@ export default function App() {
         });
       });
 
-      unlistenRemoveChannel = await listen('channel_remove', (event: any) => {
+      unlistenRemoveChannel = await listen<{ channel_id: number }>('channel_remove', (event) => {
         const remove = event.payload;
         setChannels(prev => prev.filter(c => c.channel_id !== remove.channel_id));
       });
-      unlistenTextMessage = await listen('text_message', (event: any) => {
+      unlistenTextMessage = await listen<ChatMessage>('text_message', (event) => {
         console.log("Text Message:", event.payload);
         setMessages(prev => [...prev, event.payload]);
       });
@@ -203,7 +203,7 @@ export default function App() {
                           <User size={12} />
                           {user.isSpeaking && <div className="speaking-dot"></div>}
                         </div>
-                        <span className="sidebar-username">{user.name}</span>
+                        <span className="sidebar-username">{user.name ?? `User ${user.session}`}</span>
                       </div>
                     ))}
                   </div>
@@ -306,56 +306,14 @@ export default function App() {
                 <LoginModal onConnect={handleConnect} isConnecting={isConnecting} />
               </div>
             ) : (
-              <>
-                <div className="chat-messages-main">
-                  {messages.length === 0 && (
-                    <div className="empty-chat-state">
-                      <MessageSquare size={48} />
-                      <p>Welcome to the channel!</p>
-                    </div>
-                  )}
-                  {messages.map((msg, i) => {
-                    const actor = activeUsers.find(u => u.session === msg.actor)?.name || `User ${msg.actor}`;
-                    return (
-                      <div key={i} className="chat-message">
-                        <div className="message-header">
-                          <span className="message-author">{actor}</span>
-                          <span className="message-time">
-                            {msg.timestamp
-                              ? new Date(msg.timestamp * 1000).toLocaleTimeString()
-                              : new Date().toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <div className="message-content">{msg.message}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="chat-input-area-main">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (inputMessage.trim()) {
-                        invoke('send_message', { message: inputMessage });
-                        setInputMessage("");
-                      }
-                    }}
-                    className="chat-form"
-                  >
-                    <input
-                      type="text"
-                      value={inputMessage}
-                      onChange={e => setInputMessage(e.target.value)}
-                      placeholder={`Message ${channels.find(c => c.channel_id === (activeUsers.find(u => u.name === currentUser.name)?.channel_id || 0))?.name || "General"}...`}
-                      className="chat-input"
-                    />
-                    <button type="submit" className="chat-send-btn">
-                      <Send size={16} />
-                    </button>
-                  </form>
-                </div>
-              </>
+              <ChatPanel
+                messages={messages}
+                activeUsers={activeUsers}
+                channels={channels}
+                currentUsername={currentUser.name}
+                inputMessage={inputMessage}
+                onInputMessageChange={setInputMessage}
+              />
             )}
           </AnimatePresence>
         </section>
