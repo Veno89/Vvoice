@@ -1,13 +1,13 @@
-use tokio::net::TcpStream;
-use futures::{SinkExt, StreamExt, stream::SplitSink};
-use tokio_util::codec::{Framed, Decoder, Encoder};
 use anyhow::Result;
-use std::sync::Arc;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
-use tokio_rustls::TlsConnector;
-use prost::Message;
 use bytes::BytesMut;
+use futures::{stream::SplitSink, SinkExt, StreamExt};
+use prost::Message;
 use std::convert::TryFrom;
+use std::sync::Arc;
+use tokio::net::TcpStream;
+use tokio_rustls::rustls::{pki_types::ServerName, ClientConfig, RootCertStore};
+use tokio_rustls::TlsConnector;
+use tokio_util::codec::{Decoder, Encoder, Framed};
 
 // Include generated protos
 pub mod mumble_proto {
@@ -41,7 +41,9 @@ impl Decoder for MumbleCodec {
 
         let packet = match packet_type {
             0 => MumblePacket::Version(Version::decode(payload)?),
-            1 => MumblePacket::UDPTunnel(UdpTunnel { packet: payload.to_vec() }), 
+            1 => MumblePacket::UDPTunnel(UdpTunnel {
+                packet: payload.to_vec(),
+            }),
             2 => MumblePacket::Authenticate(Authenticate::decode(payload)?),
             3 => MumblePacket::Ping(Ping::decode(payload)?),
             4 => MumblePacket::Reject(Reject::decode(payload)?),
@@ -145,13 +147,14 @@ pub enum MumblePacket {
 
 // --- CLIENT IMPLEMENTATION ---
 
-use tauri::Emitter;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use opus::{Encoder as OpusEncoder, Decoder as OpusDecoder, Application, Channels};
-use std::sync::Mutex;
+use opus::{Application, Channels, Decoder as OpusDecoder, Encoder as OpusEncoder};
 use std::collections::VecDeque;
+use std::sync::Mutex;
+use tauri::Emitter;
 
-type MumbleSink = SplitSink<Framed<tokio_rustls::client::TlsStream<TcpStream>, MumbleCodec>, MumblePacket>;
+type MumbleSink =
+    SplitSink<Framed<tokio_rustls::client::TlsStream<TcpStream>, MumbleCodec>, MumblePacket>;
 
 // Simple thread-safe jitter buffer
 struct AudioBuffer {
@@ -173,36 +176,32 @@ impl VoiceClient {
         }
     }
 
-    pub async fn connect(app: tauri::AppHandle, host: &str, port: u16, username: &str, password: &str, input_device: Option<String>, vad_threshold: f32) -> Result<Self> {
+    pub async fn connect(
+        app: tauri::AppHandle,
+        host: &str,
+        port: u16,
+        username: &str,
+        password: &str,
+        input_device: Option<String>,
+        vad_threshold: f32,
+    ) -> Result<Self> {
         let addr = format!("{}:{}", host, port);
         // ... (connection logic, handshake)
-        
+
         let socket = TcpStream::connect(&addr).await?;
-        let root_store = RootCertStore::empty();
-        let mut config = ClientConfig::builder()
+        let mut root_store = RootCertStore::empty();
+        for cert in rustls_native_certs::load_native_certs().certs {
+            let _ = root_store.add(cert);
+        }
+
+        let config = ClientConfig::builder()
             .with_root_certificates(root_store)
             .with_no_client_auth();
-            
-        #[derive(Debug)]
-        struct NoVerifier;
-        impl tokio_rustls::rustls::client::danger::ServerCertVerifier for NoVerifier {
-            fn verify_server_cert(&self, _: &tokio_rustls::rustls::pki_types::CertificateDer<'_>, _: &[tokio_rustls::rustls::pki_types::CertificateDer<'_>], _: &tokio_rustls::rustls::pki_types::ServerName<'_>, _: &[u8], _: tokio_rustls::rustls::pki_types::UnixTime) -> Result<tokio_rustls::rustls::client::danger::ServerCertVerified, tokio_rustls::rustls::Error> {
-                Ok(tokio_rustls::rustls::client::danger::ServerCertVerified::assertion())
-            }
-            fn verify_tls12_signature(&self, _: &[u8], _: &tokio_rustls::rustls::pki_types::CertificateDer<'_>, _: &tokio_rustls::rustls::DigitallySignedStruct) -> Result<tokio_rustls::rustls::client::danger::HandshakeSignatureValid, tokio_rustls::rustls::Error> {
-                Ok(tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
-            }
-            fn verify_tls13_signature(&self, _: &[u8], _: &tokio_rustls::rustls::pki_types::CertificateDer<'_>, _: &tokio_rustls::rustls::DigitallySignedStruct) -> Result<tokio_rustls::rustls::client::danger::HandshakeSignatureValid, tokio_rustls::rustls::Error> {
-                Ok(tokio_rustls::rustls::client::danger::HandshakeSignatureValid::assertion())
-            }
-            fn supported_verify_schemes(&self) -> Vec<tokio_rustls::rustls::SignatureScheme> {
-                vec![tokio_rustls::rustls::SignatureScheme::RSA_PKCS1_SHA1, tokio_rustls::rustls::SignatureScheme::ECDSA_NISTP256_SHA256, tokio_rustls::rustls::SignatureScheme::RSA_PSS_SHA256, tokio_rustls::rustls::SignatureScheme::ED25519]
-            }
-        }
-        config.dangerous().set_certificate_verifier(Arc::new(NoVerifier));
 
         let connector = TlsConnector::from(Arc::new(config));
-        let dns_name = ServerName::try_from(host.to_string()).unwrap_or(ServerName::try_from("localhost").unwrap()).to_owned();
+        let server_name = if host.is_empty() { "localhost" } else { host };
+        let dns_name = ServerName::try_from(server_name.to_owned())
+            .map_err(|e| anyhow::anyhow!("Invalid TLS server name '{}': {}", server_name, e))?;
         let tls_stream = connector.connect(dns_name, socket).await?;
 
         let framed = Framed::new(tls_stream, MumbleCodec);
@@ -210,7 +209,7 @@ impl VoiceClient {
 
         // Create main outgoing channel
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MumblePacket>();
-        
+
         // Create shutdown channel
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -227,40 +226,42 @@ impl VoiceClient {
         // Wait for ServerSync
         println!("Waiting for Server Handshake...");
         let mut session_id = None;
-        
+
         while let Some(packet) = stream.next().await {
             match packet {
                 Ok(MumblePacket::Version(v)) => {
                     println!("Server Version: {:?}", v.release);
                 }
                 Ok(MumblePacket::ServerSync(s)) => {
-                session_id = s.session;
-                println!("Handshake Complete! Session ID: {:?}", session_id);
-                break;
-            }
-            Ok(MumblePacket::ChannelState(c)) => {
-                println!("Handshake Channel: {:?}", c);
-                let _ = app.emit("channel_update", c);
-            }
-            Ok(MumblePacket::UserState(u)) => {
-                println!("Handshake User: {:?}", u);
-                let _ = app.emit("user_update", u);
-            }
-            Ok(MumblePacket::Reject(r)) => {
+                    session_id = s.session;
+                    println!("Handshake Complete! Session ID: {:?}", session_id);
+                    break;
+                }
+                Ok(MumblePacket::ChannelState(c)) => {
+                    println!("Handshake Channel: {:?}", c);
+                    let _ = app.emit("channel_update", c);
+                }
+                Ok(MumblePacket::UserState(u)) => {
+                    println!("Handshake User: {:?}", u);
+                    let _ = app.emit("user_update", u);
+                }
+                Ok(MumblePacket::Reject(r)) => {
                     return Err(anyhow::anyhow!("Connection rejected: {:?}", r.reason));
                 }
-                Ok(MumblePacket::Ping(_)) => {} 
-                Ok(_) => {} 
+                Ok(MumblePacket::Ping(_)) => {}
+                Ok(_) => {}
                 Err(e) => return Err(anyhow::anyhow!("Handshake error: {}", e)),
             }
         }
-        
+
         if session_id.is_none() {
             return Err(anyhow::anyhow!("Disconnected during handshake"));
         }
 
         // --- AUDIO PLAYBACK SETUP ---
-        let audio_buffer = Arc::new(Mutex::new(AudioBuffer { buffer: VecDeque::new() }));
+        let audio_buffer = Arc::new(Mutex::new(AudioBuffer {
+            buffer: VecDeque::new(),
+        }));
         let audio_buffer_playback = audio_buffer.clone();
 
         // 3. Spawn Playback Thread (cpal)
@@ -269,42 +270,45 @@ impl VoiceClient {
             let device = match host.default_output_device() {
                 Some(d) => d,
                 None => {
-                     eprintln!("No output device available");
-                     return;
+                    eprintln!("No output device available");
+                    return;
                 }
             };
-            
+
             let config = match device.default_output_config() {
-                 Ok(c) => c,
-                 Err(e) => {
-                     eprintln!("Failed to get output config: {}", e);
-                     return;
-                 }
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Failed to get output config: {}", e);
+                    return;
+                }
             };
-            
-            println!("INFO: Output device: {}", device.name().unwrap_or("Unknown".into()));
+
+            println!(
+                "INFO: Output device: {}",
+                device.name().unwrap_or("Unknown".into())
+            );
 
             let err_fn = |err| eprintln!("an error occurred on stream: {}", err);
-            
+
             let stream = match config.sample_format() {
                 cpal::SampleFormat::F32 => device.build_output_stream(
                     &config.into(),
                     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                         let mut buf = audio_buffer_playback.lock().unwrap();
-                         for sample in data.iter_mut() {
-                             if let Some(s) = buf.buffer.pop_front() {
-                                 *sample = s;
-                             } else {
-                                 *sample = 0.0;
-                             }
-                         }
+                        let mut buf = audio_buffer_playback.lock().unwrap();
+                        for sample in data.iter_mut() {
+                            if let Some(s) = buf.buffer.pop_front() {
+                                *sample = s;
+                            } else {
+                                *sample = 0.0;
+                            }
+                        }
                     },
                     err_fn,
-                    None
+                    None,
                 ),
                 _ => {
                     eprintln!("Unsupported sample format");
-                    return; 
+                    return;
                 } // TODO: Support other formats
             };
 
@@ -322,37 +326,40 @@ impl VoiceClient {
 
         // Clone for Audio Capture Thread
         let tx_audio = tx.clone();
-        
+
         // Shared VAD threshold
         let vad_threshold_outer = Arc::new(Mutex::new(vad_threshold));
         let vad_threshold_clone = vad_threshold_outer.clone();
-        
-            // 4. Start Capture Thread
-            let vad_threshold_capture = vad_threshold_clone.clone();
-            let selected_device_name = input_device.clone();
 
-            std::thread::spawn(move || {
-                let host = cpal::default_host();
-                
-                // Select Device
-                let device = if let Some(name) = selected_device_name {
-                    host.input_devices().ok().and_then(|mut devices| {
-                        devices.find(|d| d.name().map(|n| n == name).unwrap_or(false))
-                    })
-                } else {
-                    host.default_input_device()
-                };
+        // 4. Start Capture Thread
+        let vad_threshold_capture = vad_threshold_clone.clone();
+        let selected_device_name = input_device.clone();
 
-                let device = match device {
-                    Some(d) => d,
-                    None => {
-                        eprintln!("No input device found");
-                        return;
-                    },
-                };
-                
-                println!("INFO: Using Input Device: {}", device.name().unwrap_or("Unknown".into()));
-            
+        std::thread::spawn(move || {
+            let host = cpal::default_host();
+
+            // Select Device
+            let device = if let Some(name) = selected_device_name {
+                host.input_devices().ok().and_then(|mut devices| {
+                    devices.find(|d| d.name().map(|n| n == name).unwrap_or(false))
+                })
+            } else {
+                host.default_input_device()
+            };
+
+            let device = match device {
+                Some(d) => d,
+                None => {
+                    eprintln!("No input device found");
+                    return;
+                }
+            };
+
+            println!(
+                "INFO: Using Input Device: {}",
+                device.name().unwrap_or("Unknown".into())
+            );
+
             let config = match device.default_input_config() {
                 Ok(c) => c,
                 Err(_) => return,
@@ -360,9 +367,12 @@ impl VoiceClient {
 
             let mut encoder = match OpusEncoder::new(48000, Channels::Mono, Application::Voip) {
                 Ok(e) => e,
-                Err(e) => { tracing::error!("Failed to create Opus encoder: {:?}", e); return; }
+                Err(e) => {
+                    tracing::error!("Failed to create Opus encoder: {:?}", e);
+                    return;
+                }
             };
-            
+
             println!("INFO: Opus encoder initialized successfully! (Audio Thread)");
 
             let mut sequence_number = 0u64;
@@ -383,49 +393,56 @@ impl VoiceClient {
                         return;
                     }
 
-                    let i16_samples: Vec<i16> = data.iter().map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16).collect();
-                     
+                    let i16_samples: Vec<i16> = data
+                        .iter()
+                        .map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16)
+                        .collect();
+
                     if i16_samples.len() >= 480 {
-                         let mut output = [0u8; 1500];
-                         match encoder.encode(&i16_samples, &mut output) {
-                             Ok(len) => {
-                                 let opus_data = &output[..len];
-                                 let header_byte = (4u8 << 5) | (0 & 0x1F);
-                                 let mut i = sequence_number;
-                                 let mut packet = Vec::with_capacity(1 + 10 + len);
-                                 packet.push(header_byte);
-                                 
-                                 // Simple Varint writer
-                                 loop {
-                                     let mut byte = (i & 0x7F) as u8;
-                                     i >>= 7;
-                                     if i != 0 {
-                                         byte |= 0x80;
-                                         packet.push(byte);
-                                     } else {
-                                         packet.push(byte);
-                                         break;
-                                     }
-                                 }
-                                 
-                                 sequence_number += 1;
-                                 packet.extend_from_slice(opus_data);
-                                 
-                                 let tunnel_msg = UdpTunnel { packet };
-                                 let _ = tx_audio.send(MumblePacket::UDPTunnel(tunnel_msg));
-                             },
-                             Err(_e) => {}
-                         }
+                        let mut output = [0u8; 1500];
+                        match encoder.encode(&i16_samples, &mut output) {
+                            Ok(len) => {
+                                let opus_data = &output[..len];
+                                let header_byte = (4u8 << 5) | (0 & 0x1F);
+                                let mut i = sequence_number;
+                                let mut packet = Vec::with_capacity(1 + 10 + len);
+                                packet.push(header_byte);
+
+                                // Simple Varint writer
+                                loop {
+                                    let mut byte = (i & 0x7F) as u8;
+                                    i >>= 7;
+                                    if i != 0 {
+                                        byte |= 0x80;
+                                        packet.push(byte);
+                                    } else {
+                                        packet.push(byte);
+                                        break;
+                                    }
+                                }
+
+                                sequence_number += 1;
+                                packet.extend_from_slice(opus_data);
+
+                                let tunnel_msg = UdpTunnel { packet };
+                                let _ = tx_audio.send(MumblePacket::UDPTunnel(tunnel_msg));
+                            }
+                            Err(_e) => {}
+                        }
                     }
                 },
-                move |err| { eprintln!("Audio error: {}", err); },
-                None
+                move |err| {
+                    eprintln!("Audio error: {}", err);
+                },
+                None,
             );
-            
+
             if let Ok(s) = stream {
                 println!("INFO: Audio capture stream started!");
                 let _ = s.play();
-                loop { std::thread::sleep(std::time::Duration::from_secs(60)); }
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                }
             }
         });
 
@@ -475,10 +492,10 @@ impl VoiceClient {
                                             // 1. Header (1 byte, assume type 4)
                                             // 2. Client-Seq (Varint)
                                             // 3. Payload
-                                            
+
                                             // Skip header
                                             let mut idx = 1;
-                                            
+
                                             // Skip Varint (Seq)
                                             loop {
                                                 if idx >= packet.len() { break; }
@@ -486,11 +503,11 @@ impl VoiceClient {
                                                 idx += 1;
                                                 if (byte & 0x80) == 0 { break; }
                                             }
-                                            
+
                                             if idx < packet.len() {
                                                 let opus_data = &packet[idx..];
                                                 let mut pcm = [0.0f32; 1920]; // Max frame size
-                                                
+
                                                 match decoder.decode_float(opus_data, &mut pcm, false) {
                                                     Ok(samples) => {
                                                         // Push to buffer
@@ -498,7 +515,7 @@ impl VoiceClient {
                                                         for i in 0..samples {
                                                             buf.buffer.push_back(pcm[i]);
                                                         }
-                                                        
+
                                                         // Prevent buffer bloat
                                                         if buf.buffer.len() > 48000 { // 1 sec
                                                             let to_remove = buf.buffer.len() - 48000;
@@ -531,14 +548,18 @@ impl VoiceClient {
                                     break;
                                 }
                             }
-                            None => break, 
+                            None => break,
                         }
                     }
                 }
             }
         });
 
-        Ok(Self { tx, _shutdown: shutdown_tx, vad_threshold: vad_threshold_outer })
+        Ok(Self {
+            tx,
+            _shutdown: shutdown_tx,
+            vad_threshold: vad_threshold_outer,
+        })
     }
 
     pub fn set_vad_threshold(&self, threshold: f32) {
