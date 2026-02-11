@@ -12,8 +12,6 @@ import {
   User,
   ShieldCheck,
   MoreVertical,
-  MessageSquare,
-  Send
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { LoginModal } from "./components/LoginModal";
