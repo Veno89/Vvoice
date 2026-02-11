@@ -1,8 +1,8 @@
 mod mumble;
 use mumble::VoiceClient;
-use tokio::sync::Mutex;
-use tauri::tray::TrayIconBuilder;
 use tauri::image::Image;
+use tauri::tray::TrayIconBuilder;
+use tokio::sync::Mutex;
 
 struct AppState {
     client: Mutex<Option<VoiceClient>>,
@@ -10,24 +10,37 @@ struct AppState {
 
 #[tauri::command]
 async fn connect_voice(
-    app: tauri::AppHandle, 
-    state: tauri::State<'_, AppState>, 
-    username: String, 
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    username: String,
     password: String,
     input_device: Option<String>,
-    vad_threshold: Option<f32>
+    vad_threshold: Option<f32>,
 ) -> Result<(), String> {
-    println!("Connecting as {} (Device: {:?}, VAD: {:?})...", username, input_device, vad_threshold);
+    println!(
+        "Connecting as {} (Device: {:?}, VAD: {:?})...",
+        username, input_device, vad_threshold
+    );
     let mut client_lock = state.client.lock().await;
     // Default VAD to 0.01 if not provided
     let threshold = vad_threshold.unwrap_or(0.01);
-    
-    match VoiceClient::connect(app, "127.0.0.1", 64738, &username, &password, input_device, threshold).await {
+
+    match VoiceClient::connect(
+        app,
+        "127.0.0.1",
+        64738,
+        &username,
+        &password,
+        input_device,
+        threshold,
+    )
+    .await
+    {
         Ok(client) => {
             println!("Successfully connected!");
             *client_lock = Some(client);
             Ok(())
-        },
+        }
         Err(e) => {
             println!("Failed to connect: {}", e);
             Err(e.to_string())
@@ -41,7 +54,10 @@ async fn get_input_devices() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn set_vad_threshold(state: tauri::State<'_, AppState>, threshold: f32) -> Result<(), String> {
+async fn set_vad_threshold(
+    state: tauri::State<'_, AppState>,
+    threshold: f32,
+) -> Result<(), String> {
     let client_lock = state.client.lock().await;
     if let Some(client) = &*client_lock {
         client.set_vad_threshold(threshold);
@@ -113,24 +129,25 @@ pub fn run() {
             client: Mutex::new(None),
         })
         .setup(|app| {
-            let tray_image = Image::from_bytes(include_bytes!("../icons/vvoice2.png")).unwrap();
-            let _tray = TrayIconBuilder::new()
-                .icon(tray_image)
-                .tooltip("Vvoice")
-                .build(app)?;
+            if let Ok(tray_image) = Image::from_bytes(include_bytes!("../icons/vvoice2.png")) {
+                let _tray = TrayIconBuilder::new()
+                    .icon(tray_image)
+                    .tooltip("Vvoice")
+                    .build(app)?;
+            }
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            connect_voice, 
-            disconnect_voice, 
-            send_message, 
-            join_channel, 
-            set_mute, 
+            connect_voice,
+            disconnect_voice,
+            send_message,
+            join_channel,
+            set_mute,
             set_deaf,
             get_input_devices,
             set_vad_threshold
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| eprintln!("error while running tauri application: {}", e));
 }

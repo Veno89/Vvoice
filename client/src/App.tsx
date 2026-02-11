@@ -12,14 +12,12 @@ import {
   User,
   ShieldCheck,
   MoreVertical,
-  MessageSquare,
-  Send
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
-import { useMumbleEvents } from "./hooks/useMumbleEvents";
-import { ActiveUser, Channel, ChatMessage } from "./types/mumble";
+import { ChatPanel } from "./components/ChatPanel";
+import type { ActiveUser, Channel, ChatMessage } from "./types/voice";
 
 
 import { ActiveUser, Channel, ChatMessage, mergeActiveUser } from "./types/mumble";
@@ -72,6 +70,12 @@ export default function App() {
             // Update existing: Partial update logic (don't overwrite with nulls)
             console.log("Updating existing user:", exists, "with:", user);
             const merged = mergeActiveUser(exists, user);
+            const merged: ActiveUser = { ...exists };
+            for (const [key, value] of Object.entries(user)) {
+              if (value !== null && value !== undefined) {
+                merged[key] = value;
+              }
+            }
             return prev.map(u => u.session === user.session ? merged : u);
           } else {
             // Add new
@@ -304,56 +308,14 @@ export default function App() {
                 <LoginModal onConnect={handleConnect} isConnecting={isConnecting} />
               </div>
             ) : (
-              <>
-                <div className="chat-messages-main">
-                  {messages.length === 0 && (
-                    <div className="empty-chat-state">
-                      <MessageSquare size={48} />
-                      <p>Welcome to the channel!</p>
-                    </div>
-                  )}
-                  {messages.map((msg, i) => {
-                    const actor = activeUsers.find(u => u.session === msg.actor)?.name || `User ${msg.actor}`;
-                    return (
-                      <div key={i} className="chat-message">
-                        <div className="message-header">
-                          <span className="message-author">{actor}</span>
-                          <span className="message-time">
-                            {msg.timestamp
-                              ? new Date(msg.timestamp * 1000).toLocaleTimeString()
-                              : new Date().toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <div className="message-content">{msg.message}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="chat-input-area-main">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (inputMessage.trim()) {
-                        invoke('send_message', { message: inputMessage });
-                        setInputMessage("");
-                      }
-                    }}
-                    className="chat-form"
-                  >
-                    <input
-                      type="text"
-                      value={inputMessage}
-                      onChange={e => setInputMessage(e.target.value)}
-                      placeholder={`Message ${channels.find(c => c.channel_id === (activeUsers.find(u => u.name === currentUser.name)?.channel_id || 0))?.name || "General"}...`}
-                      className="chat-input"
-                    />
-                    <button type="submit" className="chat-send-btn">
-                      <Send size={16} />
-                    </button>
-                  </form>
-                </div>
-              </>
+              <ChatPanel
+                messages={messages}
+                activeUsers={activeUsers}
+                channels={channels}
+                currentUsername={currentUser.name}
+                inputMessage={inputMessage}
+                onInputMessageChange={setInputMessage}
+              />
             )}
           </AnimatePresence>
         </section>
