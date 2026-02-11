@@ -12,8 +12,6 @@ import {
   User,
   ShieldCheck,
   MoreVertical,
-  MessageSquare,
-  Send
 } from "lucide-react";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
