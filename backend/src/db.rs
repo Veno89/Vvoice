@@ -1,7 +1,7 @@
-use sqlx::postgres::{PgPoolOptions, PgPool};
-use anyhow::Result;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use sqlx::postgres::{PgPool, PgPoolOptions};
 use tracing::info;
-use serde::{Serialize, Deserialize};
 
 #[derive(Clone)]
 pub struct Database {
@@ -38,25 +38,26 @@ impl Database {
         info!("Connecting to database...");
 
         // 1. Attempt to connect to the target database directly
-        let pool_result = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(url)
-            .await;
+        let pool_result = PgPoolOptions::new().max_connections(5).connect(url).await;
 
         let pool = match pool_result {
             Ok(p) => p,
             Err(_) => {
                 info!("Target database does not exist. Attempting to create it...");
-                let (base_url, db_name) = url.rsplit_once('/').expect("Invalid DATABASE_URL format");
+                let (base_url, db_name) = url
+                    .rsplit_once('/')
+                    .context("Invalid DATABASE_URL format")?;
                 let maintenance_url = format!("{}/postgres", base_url);
-                
+
                 let maintenance_pool = PgPoolOptions::new()
                     .connect(&maintenance_url)
                     .await
-                    .map_err(|e| anyhow::anyhow!("Failed to connect to maintenance database: {}", e))?;
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to connect to maintenance database: {}", e)
+                    })?;
 
                 let exists: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)"
+                    "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
                 )
                 .bind(db_name)
                 .fetch_one(&maintenance_pool)
@@ -67,23 +68,18 @@ impl Database {
                     sqlx::query(&query).execute(&maintenance_pool).await?;
                     info!("Database '{}' created successfully!", db_name);
                 }
-                
+
                 maintenance_pool.close().await;
 
-                PgPoolOptions::new()
-                    .max_connections(5)
-                    .connect(url)
-                    .await?
+                PgPoolOptions::new().max_connections(5).connect(url).await?
             }
         };
-            
+
         info!("Database connected!");
-        
+
         // Run migrations
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await?;
-            
+        sqlx::migrate!("./migrations").run(&pool).await?;
+
         info!("Migrations applied!");
 
         Ok(Self { pool })
@@ -99,7 +95,7 @@ impl Database {
 
     pub async fn create_user(&self, username: &str, password_hash: &str) -> Result<DbUser> {
         let user = sqlx::query_as::<_, DbUser>(
-            "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING *"
+            "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING *",
         )
         .bind(username)
         .bind(password_hash)
@@ -115,27 +111,30 @@ impl Database {
         Ok(channels)
     }
 
-    pub async fn save_message(&self, sender_name: &str, channel_id: i32, content: &str) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO messages (sender_name, channel_id, content) VALUES ($1, $2, $3)"
-        )
-        .bind(sender_name)
-        .bind(channel_id)
-        .bind(content)
-        .execute(&self.pool)
-        .await?;
+    pub async fn save_message(
+        &self,
+        sender_name: &str,
+        channel_id: i32,
+        content: &str,
+    ) -> Result<()> {
+        sqlx::query("INSERT INTO messages (sender_name, channel_id, content) VALUES ($1, $2, $3)")
+            .bind(sender_name)
+            .bind(channel_id)
+            .bind(content)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     pub async fn get_recent_messages(&self, channel_id: i32, limit: i64) -> Result<Vec<DbMessage>> {
         let messages = sqlx::query_as::<_, DbMessage>(
-            "SELECT * FROM messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT $2"
+            "SELECT * FROM messages WHERE channel_id = $1 ORDER BY created_at DESC LIMIT $2",
         )
         .bind(channel_id)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
-        
+
         // Reverse to return chronological order
         Ok(messages.into_iter().rev().collect())
     }

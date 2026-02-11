@@ -294,7 +294,9 @@ impl VoiceClient {
                 cpal::SampleFormat::F32 => device.build_output_stream(
                     &config.into(),
                     move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                        let mut buf = audio_buffer_playback.lock().unwrap();
+                        let Ok(mut buf) = audio_buffer_playback.lock() else {
+                            return;
+                        };
                         for sample in data.iter_mut() {
                             if let Some(s) = buf.buffer.pop_front() {
                                 *sample = s;
@@ -386,7 +388,10 @@ impl VoiceClient {
                         sum_sq += sample * sample;
                     }
                     let rms = (sum_sq / data.len() as f32).sqrt();
-                    let threshold = *vad_threshold_capture.lock().unwrap();
+                    let threshold = match vad_threshold_capture.lock() {
+                        Ok(value) => *value,
+                        Err(_) => return,
+                    };
 
                     if rms < threshold {
                         // Silence - do not transmit
@@ -511,7 +516,9 @@ impl VoiceClient {
                                                 match decoder.decode_float(opus_data, &mut pcm, false) {
                                                     Ok(samples) => {
                                                         // Push to buffer
-                                                        let mut buf = audio_buffer.lock().unwrap();
+                                                        let Ok(mut buf) = audio_buffer.lock() else {
+                                                            return;
+                                                        };
                                                         for i in 0..samples {
                                                             buf.buffer.push_back(pcm[i]);
                                                         }
