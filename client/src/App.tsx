@@ -13,17 +13,12 @@ import {
   ShieldCheck,
   MoreVertical,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { useMumbleEvents } from "./hooks/useMumbleEvents";
+import { useVoiceConnection } from "./hooks/useVoiceConnection";
 
 export default function App() {
-  const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isDeafened, setIsDeafened] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
   const [audioSettings, setAudioSettings] = useState<{ device: string | null, vad: number }>({
@@ -34,41 +29,22 @@ export default function App() {
   // Chat State
   const [inputMessage, setInputMessage] = useState("");
 
-  const [currentUsername, setCurrentUsername] = useState("AllowedUser");
-  const [currentUserRole] = useState("User");
-
   const { channels, activeUsers, messages, reset } = useMumbleEvents();
-
-  const handleConnect = async (username: string, password: string) => {
-    setIsConnecting(true);
-    try {
-      // Clear list on connect
-      reset();
-      await invoke("connect_voice", {
-        username,
-        password,
-        inputDevice: audioSettings.device,
-        vadThreshold: audioSettings.vad
-      });
-      setCurrentUsername(username);
-      setIsConnected(true);
-    } catch (e) {
-      console.error("Connection failed:", e);
-      alert(`Connection failed: ${e}`);
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    try {
-      await invoke("disconnect_voice");
-      setIsConnected(false);
-      reset();
-    } catch (e) {
-      console.error("Disconnect failed:", e);
-    }
-  };
+  const {
+    isConnected,
+    isMuted,
+    isDeafened,
+    isConnecting,
+    currentUsername,
+    currentUserRole,
+    connect,
+    disconnect,
+    joinChannel,
+    sendMessage,
+    toggleEcho,
+    toggleMute,
+    toggleDeaf,
+  } = useVoiceConnection(reset);
 
   return (
     <div className="app-container">
@@ -100,10 +76,7 @@ export default function App() {
                   <div
                     className={`channel-item ${isActive ? 'active' : ''}`}
                     onClick={() => {
-                      console.log("Clicked channel:", ch.channel_id);
-                      invoke('join_channel', { channelId: ch.channel_id })
-                        .then(() => console.log("Invoke join_channel success"))
-                        .catch(e => console.error("Invoke join_channel error:", e));
+                      void joinChannel(ch.channel_id);
                     }}
                   >
                     <Hash size={16} className="channel-icon" />
@@ -152,9 +125,7 @@ export default function App() {
           <div className="control-bar">
             <button
               onClick={() => {
-                const newState = !isMuted;
-                setIsMuted(newState);
-                invoke('set_mute', { mute: newState });
+                void toggleMute();
               }}
               className={`icon-btn ${isMuted ? 'active' : ''}`}
               title={isMuted ? "Unmute" : "Mute"}
@@ -163,10 +134,7 @@ export default function App() {
             </button>
             <button
               onClick={() => {
-                const newState = !isDeafened;
-                setIsDeafened(newState);
-                invoke('set_deaf', { deaf: newState });
-                if (newState) setIsMuted(true); // Implicit mute logic
+                void toggleDeaf();
               }}
               className={`icon-btn ${isDeafened ? 'active' : ''}`}
               title={isDeafened ? "Undeafen" : "Deafen"}
@@ -175,7 +143,7 @@ export default function App() {
             </button>
             <div style={{ width: 1, backgroundColor: 'var(--border)', height: 16, alignSelf: 'center' }}></div>
             <button
-              onClick={isConnected ? handleDisconnect : undefined}
+              onClick={isConnected ? disconnect : undefined}
               disabled={isConnecting || !isConnected}
               className={`icon-btn primary ${isConnected ? 'active' : ''} ${isConnecting ? 'loading' : ''}`}
               title={isConnected ? "Disconnect" : "Connect"}
@@ -199,7 +167,9 @@ export default function App() {
 
             <button
               className="btn-small secondary"
-              onClick={() => invoke('send_message', { message: "/echo" })}
+              onClick={() => {
+                void toggleEcho();
+              }}
               title="Toggle Loopback Test"
               style={{ marginRight: 8 }}
             >
@@ -218,7 +188,7 @@ export default function App() {
           <AnimatePresence mode="wait">
             {!isConnected ? (
               <div className="splash-container">
-                <LoginModal onConnect={handleConnect} isConnecting={isConnecting} />
+                <LoginModal onConnect={(username, password) => connect(username, password, audioSettings)} isConnecting={isConnecting} />
               </div>
             ) : (
               <>
@@ -252,7 +222,7 @@ export default function App() {
                     onSubmit={(e) => {
                       e.preventDefault();
                       if (inputMessage.trim()) {
-                        invoke('send_message', { message: inputMessage });
+                        void sendMessage(inputMessage);
                         setInputMessage("");
                       }
                     }}
