@@ -117,7 +117,6 @@ pub async fn handle_client(
                     MumblePacket::UserState(u) => u,
                     _ => unreachable!(),
                 })));
-                .send(MumblePacket::UserState(new_user_state.clone()));
         }
 
         s.add_peer(
@@ -242,17 +241,6 @@ pub async fn handle_client(
                                      if let Some(peer) = s.peers.get_mut(&session_id) {
                                          peer.echo_enabled = !peer.echo_enabled;
 
-                                     let echo_enabled = {
-                                         let mut s = state.lock().await;
-                                         if let Some(peer) = s.peers.get_mut(&session_id) {
-                                             peer.echo_enabled = !peer.echo_enabled;
-                                             Some(peer.echo_enabled)
-                                         } else {
-                                             None
-                                         }
-                                     };
-
-                                     if let Some(echo_enabled) = echo_enabled {
                                          // Send system confirmation
                                          let mut sys_msg = TextMessage::default();
                                          sys_msg.session = vec![session_id]; // Target self

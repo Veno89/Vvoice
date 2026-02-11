@@ -124,7 +124,7 @@ pub fn run() {
     tracing_subscriber::fmt::init();
     println!("Starting Vvoice Tauri Client...");
 
-    tauri::Builder::default()
+    let run_result = tauri::Builder::default()
         .manage(AppState {
             client: Mutex::new(None),
         })
@@ -153,6 +153,9 @@ pub fn run() {
             get_input_devices,
             set_vad_threshold
         ])
-        .run(tauri::generate_context!())
-        .unwrap_or_else(|e| eprintln!("error while running tauri application: {}", e));
+        .run(tauri::generate_context!());
+
+    if let Err(e) = run_result {
+        eprintln!("error while running tauri application: {}", e);
+    }
 }

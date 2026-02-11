@@ -190,8 +190,20 @@ impl VoiceClient {
 
         let socket = TcpStream::connect(&addr).await?;
         let mut root_store = RootCertStore::empty();
-        for cert in rustls_native_certs::load_native_certs().certs {
+        let native_certs = rustls_native_certs::load_native_certs();
+        for cert in native_certs.certs {
             let _ = root_store.add(cert);
+        }
+
+        if root_store.is_empty() {
+            return Err(anyhow::anyhow!("No system root certificates found"));
+        }
+
+        if !native_certs.errors.is_empty() {
+            tracing::warn!(
+                "Encountered {} invalid native certificates while building root store",
+                native_certs.errors.len()
+            );
         }
 
         let config = ClientConfig::builder()
@@ -304,13 +316,6 @@ impl VoiceClient {
                             }
                         } else {
                             for sample in data.iter_mut() {
-                        let Ok(mut buf) = audio_buffer_playback.lock() else {
-                            return;
-                        };
-                        for sample in data.iter_mut() {
-                            if let Some(s) = buf.buffer.pop_front() {
-                                *sample = s;
-                            } else {
                                 *sample = 0.0;
                             }
                         }
@@ -400,12 +405,6 @@ impl VoiceClient {
                     let rms = (sum_sq / data.len() as f32).sqrt();
                     let threshold = match vad_threshold_capture.lock() {
                         Ok(v) => *v,
-                    let threshold = if let Ok(v) = vad_threshold_capture.lock() {
-                        *v
-                    } else {
-                        return;
-                    let threshold = match vad_threshold_capture.lock() {
-                        Ok(value) => *value,
                         Err(_) => return,
                     };
 
@@ -535,8 +534,6 @@ impl VoiceClient {
                                                         if let Ok(mut buf) = audio_buffer.lock() {
                                                             for i in 0..samples {
                                                                 buf.buffer.push_back(pcm[i]);
-                                                            for sample in pcm.iter().take(samples) {
-                                                                buf.buffer.push_back(*sample);
                                                             }
 
                                                             // Prevent buffer bloat
@@ -544,17 +541,6 @@ impl VoiceClient {
                                                                 let to_remove = buf.buffer.len() - 48000;
                                                                 buf.buffer.drain(0..to_remove);
                                                             }
-                                                        let Ok(mut buf) = audio_buffer.lock() else {
-                                                            return;
-                                                        };
-                                                        for i in 0..samples {
-                                                            buf.buffer.push_back(pcm[i]);
-                                                        }
-
-                                                        // Prevent buffer bloat
-                                                        if buf.buffer.len() > 48000 { // 1 sec
-                                                            let to_remove = buf.buffer.len() - 48000;
-                                                            buf.buffer.drain(0..to_remove);
                                                         }
                                                     }
                                                     Err(e) => eprintln!("Decode error: {:?}", e),
