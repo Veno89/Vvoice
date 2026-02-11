@@ -1,3 +1,4 @@
+use crate::chat_service::{process_text_message, ChatHandling};
 use crate::codec::{
     MumbleCodec, MumblePacket, Reject, ServerSync, TextMessage, UserRemove, UserState, Version,
 };
@@ -242,40 +243,35 @@ pub async fn handle_client(
                                  broadcast(MumblePacket::UDPTunnel(msg), &recipients);
                              }
                              MumblePacket::TextMessage(msg) => {
-                                 // Check for commands
-                                 let content = msg.message.clone();
-                                 if content.starts_with("/echo") {
-                                     if let Some(peer) = s.peers.get_mut(&session_id) {
-                                         peer.echo_enabled = !peer.echo_enabled;
+                                 let action = {
+                                     let mut s = state.lock().await;
+                                     process_text_message(&mut s, session_id, msg)
+                                 };
 
-                                         // Send system confirmation
-                                         let mut sys_msg = TextMessage::default();
-                                         sys_msg.session = vec![session_id]; // Target self
-                                         sys_msg.message = format!("Echo mode: {}", if echo_enabled { "ON" } else { "OFF" });
-                                         let _ = tx.send(MumblePacket::TextMessage(sys_msg));
+                                 match action {
+                                     ChatHandling::CommandResponse(packet) => {
+                                         let _ = tx.send(packet);
                                      }
-                                 } else {
-                                     // Text Chat Broadcast
-                                     // Add timestamp to broadcasted message if missing
-                                     let mut broadcast_msg = msg.clone();
-                                     if broadcast_msg.timestamp.is_none() {
-                                         broadcast_msg.timestamp = Some(chrono::Utc::now().timestamp() as u64);
+                                     ChatHandling::Broadcast {
+                                         packet,
+                                         recipients,
+                                         persist_content,
+                                     } => {
+                                         broadcast(packet, &recipients);
+
+                                         // Persist to DB (Background)
+                                         let db_clone = db.clone();
+                                         let sender_name = username.clone();
+                                         tokio::spawn(async move {
+                                             if let Err(e) = db_clone
+                                                 .save_message(&sender_name, 0, &persist_content)
+                                                 .await
+                                             {
+                                                 error!("Failed to save message: {}", e);
+                                             }
+                                         });
                                      }
-
-                                     let recipients = s.peers.values().map(|peer| peer.tx.clone()).collect::<Vec<_>>();
-                                     drop(s);
-
-                                     broadcast(MumblePacket::TextMessage(broadcast_msg), &recipients);
-
-                                     // Persist to DB (Background)
-                                     let db_clone = db.clone();
-                                     let sender_name = username.clone();
-                                     let content_clone = content.clone();
-                                     tokio::spawn(async move {
-                                         if let Err(e) = db_clone.save_message(&sender_name, 0, &content_clone).await {
-                                             error!("Failed to save message: {}", e);
-                                         }
-                                     });
+                                     ChatHandling::None => {}
                                  }
                              }
                              MumblePacket::UserState(state_update) => {

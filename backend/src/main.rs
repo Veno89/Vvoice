@@ -1,4 +1,5 @@
 mod cert;
+mod chat_service;
 mod codec;
 mod db;
 mod handler;
