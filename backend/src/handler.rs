@@ -18,7 +18,7 @@ use tracing::{error, info};
 
 fn broadcast(packet: MumblePacket, recipients: &[Tx]) {
     for recipient in recipients {
-        let _ = recipient.send(packet.clone());
+        let _ = recipient.try_send(packet.clone());
     }
 }
 
@@ -61,7 +61,7 @@ pub async fn handle_client(
     };
 
     // --- SETUP SESSION ---
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::channel(256);
     let session_id;
 
     {
@@ -90,12 +90,12 @@ pub async fn handle_client(
             existing_user.channel_id = Some(peer.channel_id); // FIXED: Send actual channel
             existing_user.self_mute = Some(peer.self_mute);
             existing_user.self_deaf = Some(peer.self_deaf);
-            let _ = tx.send(MumblePacket::UserState(existing_user));
+            let _ = tx.try_send(MumblePacket::UserState(existing_user));
 
             // 2. Tell existing peer about new user
             let _ = peer
                 .tx
-                .send(MumblePacket::UserState(Clone::clone(match &packet {
+                .try_send(MumblePacket::UserState(Clone::clone(match &packet {
                     MumblePacket::UserState(u) => u,
                     _ => unreachable!(),
                 })));
@@ -188,7 +188,7 @@ pub async fn handle_client(
                         match pkt {
                              MumblePacket::Ping(p) => {
                                  // Ping Echo
-                                 let _ = tx.send(MumblePacket::Ping(p));
+                                 let _ = tx.try_send(MumblePacket::Ping(p));
                              }
                              MumblePacket::UDPTunnel(msg) => {
                                  // Simple Relay (Voice Routing)
@@ -211,7 +211,7 @@ pub async fn handle_client(
 
                                  match action {
                                      ChatHandling::CommandResponse(packet) => {
-                                         let _ = tx.send(packet);
+                                         let _ = tx.try_send(packet);
                                      }
                                      ChatHandling::Broadcast {
                                          packet,
@@ -273,7 +273,9 @@ pub async fn handle_client(
         remove_msg.session = session_id;
 
         for peer in s.peers.values() {
-            let _ = peer.tx.send(MumblePacket::UserRemove(remove_msg.clone()));
+            let _ = peer
+                .tx
+                .try_send(MumblePacket::UserRemove(remove_msg.clone()));
         }
     }
 

@@ -80,7 +80,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     fn peer(session_id: u32, channel_id: u32) -> Peer {
-        let (tx, _rx) = mpsc::unbounded_channel::<MumblePacket>();
+        let (tx, _rx) = mpsc::channel::<MumblePacket>(8);
         Peer {
             tx,
             username: format!("u{}", session_id),

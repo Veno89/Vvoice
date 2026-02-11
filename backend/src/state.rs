@@ -2,7 +2,7 @@ use crate::codec::{ChannelState, MumblePacket};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 
-pub type Tx = mpsc::UnboundedSender<MumblePacket>;
+pub type Tx = mpsc::Sender<MumblePacket>;
 
 pub struct Peer {
     pub tx: Tx,
