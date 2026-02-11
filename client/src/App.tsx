@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
   Settings,
   Mic,
@@ -21,6 +21,9 @@ import { useEffect } from "react";
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
 
+
+import { ActiveUser, Channel, ChatMessage, mergeActiveUser } from "./types/mumble";
+
 export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -35,7 +38,7 @@ export default function App() {
   });
 
   // Chat State
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState("");
 
   const [currentUser] = useState({
@@ -44,11 +47,11 @@ export default function App() {
     role: "User"
   });
 
-  const [channels, setChannels] = useState<any[]>([]);
+  const [channels, setChannels] = useState<Channel[]>([]);
 
   // ... (inside component)
 
-  const [activeUsers, setActiveUsers] = useState<any[]>([]);
+  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
 
   useEffect(() => {
     let unlistenUpdate: (() => void) | undefined;
@@ -58,7 +61,7 @@ export default function App() {
     let unlistenTextMessage: (() => void) | undefined;
 
     const setupListeners = async () => {
-      unlistenUpdate = await listen('user_update', (event: any) => {
+      unlistenUpdate = await listen<Partial<ActiveUser> & { session: number }>('user_update', (event) => {
         console.log("User Update:", event.payload);
         const user = event.payload;
         // Payload matches Mumble UserState proto: { session, name, user_id, channel_id, ... }
@@ -68,12 +71,7 @@ export default function App() {
           if (exists) {
             // Update existing: Partial update logic (don't overwrite with nulls)
             console.log("Updating existing user:", exists, "with:", user);
-            const merged = { ...exists };
-            for (const key in user) {
-              if (user[key] !== null && user[key] !== undefined) {
-                merged[key] = user[key];
-              }
-            }
+            const merged = mergeActiveUser(exists, user);
             return prev.map(u => u.session === user.session ? merged : u);
           } else {
             // Add new
@@ -82,13 +80,13 @@ export default function App() {
         });
       });
 
-      unlistenRemove = await listen('user_remove', (event: any) => {
+      unlistenRemove = await listen<{ session: number }>('user_remove', (event) => {
         console.log("User Remove:", event.payload);
         const remove = event.payload; // { session, ... }
         setActiveUsers(prev => prev.filter(u => u.session !== remove.session));
       });
 
-      unlistenUpdateChannel = await listen('channel_update', (event: any) => {
+      unlistenUpdateChannel = await listen<Channel>('channel_update', (event) => {
         const channel = event.payload;
         console.log("Channel Update:", channel);
         setChannels(prev => {
@@ -101,11 +99,11 @@ export default function App() {
         });
       });
 
-      unlistenRemoveChannel = await listen('channel_remove', (event: any) => {
+      unlistenRemoveChannel = await listen<{ channel_id: number }>('channel_remove', (event) => {
         const remove = event.payload;
         setChannels(prev => prev.filter(c => c.channel_id !== remove.channel_id));
       });
-      unlistenTextMessage = await listen('text_message', (event: any) => {
+      unlistenTextMessage = await listen<ChatMessage>('text_message', (event) => {
         console.log("Text Message:", event.payload);
         setMessages(prev => [...prev, event.payload]);
       });
@@ -203,7 +201,7 @@ export default function App() {
                           <User size={12} />
                           {user.isSpeaking && <div className="speaking-dot"></div>}
                         </div>
-                        <span className="sidebar-username">{user.name}</span>
+                        <span className="sidebar-username">{user.name ?? `User ${user.session}`}</span>
                       </div>
                     ))}
                   </div>

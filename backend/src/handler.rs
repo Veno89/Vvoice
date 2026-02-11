@@ -1,28 +1,35 @@
-use tokio::net::TcpStream;
-use tokio_rustls::server::TlsStream;
-use anyhow::Result;
-use tracing::{info, error};
-use tokio::sync::{Mutex, mpsc};
-use std::sync::Arc;
-use tokio_util::codec::Framed;
-use futures::{SinkExt, StreamExt};
-use crate::codec::{MumbleCodec, MumblePacket, Version, ServerSync, UserState, UserRemove, TextMessage, Reject};
-use crate::state::{SharedState, Peer};
-use crate::db::Database;
-use argon2::{
-    password_hash::{
-        rand_core::OsRng,
-        PasswordHash, PasswordHasher, PasswordVerifier, SaltString
-    },
-    Argon2
+use crate::codec::{
+    MumbleCodec, MumblePacket, Reject, ServerSync, TextMessage, UserRemove, UserState, Version,
 };
+use crate::db::Database;
+use crate::state::{Peer, SharedState};
+use anyhow::Result;
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
+use futures::{SinkExt, StreamExt};
+use std::sync::Arc;
+use tokio::net::TcpStream;
+use tokio::sync::{mpsc, Mutex};
+use tokio_rustls::server::TlsStream;
+use tokio_util::codec::Framed;
+use tracing::{error, info};
 
-pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<SharedState>>, peer_addr: std::net::SocketAddr, db: Database) -> Result<()> {
+pub async fn handle_client(
+    stream: TlsStream<TcpStream>,
+    state: Arc<Mutex<SharedState>>,
+    peer_addr: std::net::SocketAddr,
+    db: Database,
+) -> Result<()> {
     let mut framed = Framed::new(stream, MumbleCodec);
 
     // 1. Handshake: Expect Version
     if let Some(Ok(MumblePacket::Version(v))) = framed.next().await {
-        info!("Client {} Version: {:?} OS: {:?}", peer_addr, v.version, v.os);
+        info!(
+            "Client {} Version: {:?} OS: {:?}",
+            peer_addr, v.version, v.os
+        );
     } else {
         anyhow::bail!("Expected Version packet");
     }
@@ -31,7 +38,7 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
     let username = if let Some(Ok(MumblePacket::Authenticate(auth))) = framed.next().await {
         let username = auth.username.unwrap_or("Unknown".to_string());
         let password = auth.password.unwrap_or_default();
-        
+
         info!("Client {} Authenticating as: {:?}", peer_addr, username);
 
         // Check DB
@@ -39,8 +46,11 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
             // User exists: Verify Password
             let parsed_hash = PasswordHash::new(&user.password_hash)
                 .map_err(|e| anyhow::anyhow!("Invalid hash in DB: {}", e))?;
-            
-            if Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok() {
+
+            if Argon2::default()
+                .verify_password(password.as_bytes(), &parsed_hash)
+                .is_ok()
+            {
                 info!("User {} logged in successfully via DB.", username);
                 username
             } else {
@@ -55,10 +65,11 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
             // User does not exist: Register (Auto-register for now)
             info!("User {} not found. Registering...", username);
             let salt = SaltString::generate(&mut OsRng);
-            let password_hash = Argon2::default().hash_password(password.as_bytes(), &salt)
+            let password_hash = Argon2::default()
+                .hash_password(password.as_bytes(), &salt)
                 .map_err(|e| anyhow::anyhow!("Hashing failed: {}", e))?
                 .to_string();
-            
+
             let _new_user = db.create_user(&username, &password_hash).await?;
             info!("User {} registered successfully.", username);
             username
@@ -70,25 +81,24 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
     // --- SETUP SESSION ---
     let (tx, mut rx) = mpsc::unbounded_channel();
     let session_id;
-    
+
     {
         let mut s = state.lock().await;
         // Check collision (basic)
-        // In real app, check DB or existing names. 
+        // In real app, check DB or existing names.
         // For MVP, just ID increment.
-        
+
         session_id = s.next_session_id;
         s.next_session_id += 1;
-        
+
         info!("Assigned Session ID {} to {}", session_id, username);
 
         // Notify existing peers about new user
-        let mut new_user_msg = UserState::default();
-        new_user_msg.session = Some(session_id);
-        new_user_msg.name = Some(username.clone());
-        new_user_msg.user_id = Some(session_id); // Temporary: Use session as user_id
-        new_user_msg.channel_id = Some(0); // Root
-        let packet = MumblePacket::UserState(new_user_msg);
+        let mut new_user_state = UserState::default();
+        new_user_state.session = Some(session_id);
+        new_user_state.name = Some(username.clone());
+        new_user_state.user_id = Some(session_id); // Temporary: Use session as user_id
+        new_user_state.channel_id = Some(0); // Root
 
         for peer in s.peers.values() {
             // 1. Tell new user about existing peer
@@ -101,18 +111,23 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
             let _ = tx.send(MumblePacket::UserState(existing_user));
 
             // 2. Tell existing peer about new user
-            let _ = peer.tx.send(MumblePacket::UserState(Clone::clone(match &packet { MumblePacket::UserState(u) => u, _ => unreachable!() })));
+            let _ = peer
+                .tx
+                .send(MumblePacket::UserState(new_user_state.clone()));
         }
 
-        s.peers.insert(session_id, Peer {
-            tx: tx.clone(),
-            username: username.clone(),
+        s.add_peer(
             session_id,
-            channel_id: 0,
-            self_mute: false,
-            self_deaf: false,
-            echo_enabled: false,
-        });
+            Peer {
+                tx: tx.clone(),
+                username: username.clone(),
+                session_id,
+                channel_id: 0,
+                self_mute: false,
+                self_deaf: false,
+                echo_enabled: false,
+            },
+        );
     }
 
     // --- SEND SERVER RESPONSE ---
@@ -130,7 +145,7 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
 
         info!("Sent {} channels to {}", channels.len(), username);
         for channel in channels {
-             framed.send(MumblePacket::ChannelState(channel)).await?;
+            framed.send(MumblePacket::ChannelState(channel)).await?;
         }
     }
 
@@ -146,7 +161,8 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
     let mut sync = ServerSync::default();
     sync.session = Some(session_id);
     sync.max_bandwidth = Some(128000);
-    sync.welcome_text = Some("Welcome to Vvoice Rust Server! Type /echo to toggle loopback.".into());
+    sync.welcome_text =
+        Some("Welcome to Vvoice Rust Server! Type /echo to toggle loopback.".into());
     framed.send(MumblePacket::ServerSync(sync)).await?;
 
     // 6. Send Recent Chat History (Global/Root for now)
@@ -155,10 +171,10 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
             let mut text = TextMessage::default();
             // Prefix name for now (client doesn't have actor map for old sessions)
             text.message = format!("[History] {}: {}", msg.sender_name, msg.content);
-            text.session = vec![session_id]; 
+            text.session = vec![session_id];
             // Set Timestamp (if available)
             if let Some(created_at) = msg.created_at {
-                 text.timestamp = Some(created_at.timestamp() as u64);
+                text.timestamp = Some(created_at.timestamp() as u64);
             }
             framed.send(MumblePacket::TextMessage(text)).await?;
         }
@@ -191,38 +207,49 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
                              }
                              MumblePacket::UDPTunnel(msg) => {
                                  // Simple Relay (Voice Routing)
-                                 let s = state.lock().await;
-                                 let current_channel = s.peers.get(&session_id).map(|p| p.channel_id).unwrap_or(0);
-                                 let is_muted = s.peers.get(&session_id).map(|p| p.self_mute || p.self_deaf).unwrap_or(false);
-
-                                 if is_muted {
-                                     continue;
-                                 }
-
-                                 for peer in s.peers.values() {
-                                     if peer.session_id != session_id && peer.channel_id == current_channel {
-                                         // Forward to peers in same channel
-                                         let _ = peer.tx.send(MumblePacket::UDPTunnel(msg.clone()));
+                                 let recipients = {
+                                     let s = state.lock().await;
+                                     let Some(current_peer) = s.peers.get(&session_id) else {
+                                         continue;
+                                     };
+                                     if current_peer.self_mute || current_peer.self_deaf {
+                                         continue;
                                      }
-                                     // Echo Mode Logic
-                                     if peer.session_id == session_id && peer.echo_enabled {
-                                         let _ = peer.tx.send(MumblePacket::UDPTunnel(msg.clone()));
-                                     }
+
+                                     s.peers
+                                         .values()
+                                         .filter(|peer| {
+                                             (peer.session_id != session_id
+                                                 && peer.channel_id == current_peer.channel_id)
+                                                 || (peer.session_id == session_id && peer.echo_enabled)
+                                         })
+                                         .map(|peer| peer.tx.clone())
+                                         .collect::<Vec<_>>()
+                                 };
+
+                                 for recipient in recipients {
+                                     let _ = recipient.send(MumblePacket::UDPTunnel(msg.clone()));
                                  }
                              }
                              MumblePacket::TextMessage(msg) => {
-                                 let mut s = state.lock().await;
-
                                  // Check for commands
                                  let content = msg.message.clone();
                                  if content.starts_with("/echo") {
-                                     if let Some(peer) = s.peers.get_mut(&session_id) {
-                                         peer.echo_enabled = !peer.echo_enabled;
-                                         
+                                     let echo_enabled = {
+                                         let mut s = state.lock().await;
+                                         if let Some(peer) = s.peers.get_mut(&session_id) {
+                                             peer.echo_enabled = !peer.echo_enabled;
+                                             Some(peer.echo_enabled)
+                                         } else {
+                                             None
+                                         }
+                                     };
+
+                                     if let Some(echo_enabled) = echo_enabled {
                                          // Send system confirmation
                                          let mut sys_msg = TextMessage::default();
                                          sys_msg.session = vec![session_id]; // Target self
-                                         sys_msg.message = format!("Echo mode: {}", if peer.echo_enabled { "ON" } else { "OFF" });
+                                         sys_msg.message = format!("Echo mode: {}", if echo_enabled { "ON" } else { "OFF" });
                                          let _ = tx.send(MumblePacket::TextMessage(sys_msg));
                                      }
                                  } else {
@@ -233,11 +260,15 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
                                          broadcast_msg.timestamp = Some(chrono::Utc::now().timestamp() as u64);
                                      }
 
-                                     // Broadcast to all
-                                     for peer in s.peers.values() {
-                                         let _ = peer.tx.send(MumblePacket::TextMessage(broadcast_msg.clone()));
+                                     let recipients = {
+                                         let s = state.lock().await;
+                                         s.peers.values().map(|peer| peer.tx.clone()).collect::<Vec<_>>()
+                                     };
+
+                                     for recipient in recipients {
+                                         let _ = recipient.send(MumblePacket::TextMessage(broadcast_msg.clone()));
                                      }
-                                     
+
                                      // Persist to DB (Background)
                                      let db_clone = db.clone();
                                      let sender_name = username.clone();
@@ -256,12 +287,12 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
                                      if let Some(peer) = s.peers.get_mut(&session_id) {
                                          peer.channel_id = target_channel;
                                          info!("User {} moved to channel {}", peer.username, target_channel);
-                                         
+
                                          // Broadcast update to all
                                          let mut update = UserState::default();
                                          update.session = Some(session_id);
                                          update.channel_id = Some(target_channel);
-                                         
+
                                          for p in s.peers.values() {
                                              let _ = p.tx.send(MumblePacket::UserState(update.clone()));
                                          }
@@ -316,13 +347,13 @@ pub async fn handle_client(stream: TlsStream<TcpStream>, state: Arc<Mutex<Shared
     // --- CLEANUP ---
     {
         let mut s = state.lock().await;
-        s.peers.remove(&session_id);
+        s.remove_peer(session_id);
         info!("Cleaned up session {}", session_id);
-        
+
         // Notify others of disconnect
         let mut remove_msg = UserRemove::default();
         remove_msg.session = session_id;
-        
+
         for peer in s.peers.values() {
             let _ = peer.tx.send(MumblePacket::UserRemove(remove_msg.clone()));
         }
