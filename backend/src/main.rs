@@ -4,6 +4,7 @@ mod codec;
 mod db;
 mod handler;
 mod state;
+mod voice_router;
 
 use anyhow::{Context, Result};
 use db::Database;

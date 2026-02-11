@@ -4,6 +4,7 @@ use crate::codec::{
 };
 use crate::db::Database;
 use crate::state::{Peer, SharedState, Tx};
+use crate::voice_router::collect_voice_recipients;
 use anyhow::Result;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
@@ -219,21 +220,7 @@ pub async fn handle_client(
                                  // Simple Relay (Voice Routing)
                                  let recipients = {
                                      let s = state.lock().await;
-                                     let current_channel = s.peers.get(&session_id).map(|p| p.channel_id).unwrap_or(0);
-                                     let is_muted = s.peers.get(&session_id).map(|p| p.self_mute || p.self_deaf).unwrap_or(false);
-
-                                     if is_muted {
-                                         Vec::new()
-                                     } else {
-                                         s.peers
-                                             .values()
-                                             .filter(|peer| {
-                                                 (peer.session_id != session_id && peer.channel_id == current_channel)
-                                                     || (peer.session_id == session_id && peer.echo_enabled)
-                                             })
-                                             .map(|peer| peer.tx.clone())
-                                             .collect::<Vec<_>>()
-                                     }
+                                     collect_voice_recipients(&s, session_id)
                                  };
 
                                  if recipients.is_empty() {
