@@ -1,8 +1,15 @@
+use crate::codec::{ChannelState, MumblePacket};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use crate::codec::{MumblePacket, ChannelState};
+use tracing::warn;
 
-pub type Tx = mpsc::UnboundedSender<MumblePacket>;
+pub type Tx = mpsc::Sender<MumblePacket>;
+
+pub fn try_send_packet(tx: &Tx, packet: MumblePacket, context: &str) {
+    if let Err(e) = tx.try_send(packet) {
+        warn!("Dropping outbound backend packet in {context}: {e}");
+    }
+}
 
 pub struct Peer {
     pub tx: Tx,

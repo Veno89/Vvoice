@@ -33,8 +33,10 @@ prost = "0.12"
 prost-types = "0.12"
 cpal = "0.15"
 opus = "0.3"
+sha2 = "0.10"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 prost-build = "0.12"
+protoc-bin-vendored = "3"
 
