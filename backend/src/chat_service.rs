@@ -61,7 +61,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     fn peer(session_id: u32, channel_id: u32, echo_enabled: bool) -> Peer {
-        let (tx, _rx) = mpsc::unbounded_channel();
+        let (tx, _rx) = mpsc::channel(8);
         Peer {
             tx,
             username: format!("u{}", session_id),

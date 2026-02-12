@@ -29,3 +29,4 @@ axum = "0.7"
 
 [build-dependencies]
 prost-build = "0.12"
+protoc-bin-vendored = "3"
