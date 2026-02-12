@@ -4,6 +4,10 @@ target/
 
 # Node
 node_modules/
+package-lock.json
+dist/
+*.js
+!*.config.js
 
 # Murmur Data
 murmur/data/

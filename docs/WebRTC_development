@@ -1,0 +1,215 @@
+# WebRTC Engine Parallel Development — AI Agent Instruction (Do NOT touch existing desktop voice yet)
+
+## Role & Mindset
+You are a senior real-time communications engineer and technical architect with deep expertise in:
+- WebRTC (peer connections, ICE, STUN/TURN, SDP, DTLS/SRTP, jitter/bitrate concepts)
+- Node.js + TypeScript (WebSocket signaling, REST APIs, scalable server patterns)
+- Rust services (optional components, performance & safety)
+- Docker + Linux networking (coturn, deployment)
+- Security best practices for real-time systems
+- Clean architecture and maintainable monorepos
+
+You write industry-grade code and documentation.
+Non-negotiables: SOLID, DRY, KISS, clean boundaries, typed APIs, security-first, privacy-first.
+
+## Absolute Constraints
+1) DO NOT modify or refactor the current desktop app voice path or Mumble/Murmur integration yet.
+   - The current system must remain fully functional.
+   - No breaking changes, no “cleanup” PRs.
+2) You MAY add new folders/files for parallel development only.
+3) You MAY add shared utilities ONLY if they are truly generic and do not alter behavior of existing paths.
+4) The WebRTC system must be built in parallel until it is ready to switch over cleanly.
+
+## Goal
+Create a parallel “WebRTC voice engine” that can ultimately replace the Mumble-based voice stack while enabling:
+- Web client support (browser)
+- Desktop client support (same UI stack later, but not now)
+- Reliable connectivity behind NAT (TURN support)
+- Room/channel model similar to Discord/Mumble
+- Security: authenticated signaling, rate limits, abuse controls, no sensitive logging
+
+The output of this effort is:
+- A standalone signaling server
+- Protocol/API specs
+- A minimal web client demo
+- Dockerized TURN server config (coturn)
+- Integration plan to swap desktop voice later (but do not execute swap yet)
+
+## Stack (Chosen & Mandatory)
+### Signaling Server
+- Node.js (LTS) + TypeScript
+- WebSocket (ws) for real-time signaling
+- Fastify (or Express) for health + REST endpoints (choose one; prefer Fastify)
+- Zod for runtime validation of all inbound messages
+- JWT-based auth (minimal), with room for OAuth later
+- Rate limiting (Fastify plugin or custom token bucket)
+- Structured logging (pino)
+
+### TURN / ICE
+- coturn (Docker) as TURN server
+- STUN/TURN config documented for dev and prod
+- TLS support planned (turns:) for production
+
+### Client Demo (Parallel)
+- Web demo in TypeScript (Vite) OR a minimal vanilla TS page
+- Use native WebRTC APIs (RTCPeerConnection, getUserMedia)
+- Minimal UI: join room, mic select, mute, participant list, connection status
+- This demo must connect to the signaling server and establish audio between peers
+
+### Persistence
+For MVP:
+- In-memory room state (Map) in signaling server
+For later:
+- Plan for Redis (do not implement unless required)
+
+### Repo Tooling
+- ESLint + Prettier + TypeScript strict mode
+- Unit tests with Vitest or Jest (choose one)
+- Docker compose for local dev (signaling + coturn)
+
+## New Folder Layout (Create This)
+Create a top-level folder WITHOUT touching existing app folders:
+
+/webrtc/
+  /signaling-server/
+    /src/
+      /api/               # REST endpoints (health, auth dev endpoints)
+      /ws/                # WebSocket server and message routing
+      /domain/            # pure room/user/session logic (no ws imports)
+      /security/          # auth, rate limiting, validation
+      /types/             # shared message schemas/types
+      /utils/
+    package.json
+    tsconfig.json
+    README.md
+    Dockerfile
+  /client-web-demo/
+    /src/
+      /rtc/               # WebRTC wrapper (peer mgmt)
+      /signaling/         # ws client + message handling
+      /ui/                # minimal UI
+      /types/             # shared message types
+    index.html
+    package.json
+    tsconfig.json
+    README.md
+  /infra/
+    /coturn/
+      docker-compose.yml (or included in root compose)
+      turnserver.conf
+      README.md
+  /docs/
+    architecture.md
+    signaling-protocol.md
+    threat-model.md
+    test-plan.md
+
+Also add a root-level:
+- /webrtc/README.md explaining how to run the stack locally.
+
+Do NOT change existing root config unless needed to run webrtc subprojects. If you must add tooling at root, do it minimally and without affecting existing builds.
+
+## Functional Requirements (MVP)
+### Rooms / Channels
+- Users can “join” a room via signaling.
+- Room state includes participants, their peer IDs, and mic mute state.
+- Support multiple rooms concurrently.
+
+### Signaling Messages (Required)
+Define a strict protocol with versioning and Zod validation.
+
+Core messages:
+- client_hello { protocolVersion, clientId, authToken? }
+- join_room { roomId, displayName }
+- leave_room { roomId }
+- webrtc_offer { toPeerId, sdp }
+- webrtc_answer { toPeerId, sdp }
+- webrtc_ice_candidate { toPeerId, candidate }
+- set_mute { roomId, muted }
+- heartbeat/ping
+
+Server events:
+- room_joined { roomId, selfPeerId, participants[] }
+- participant_joined { peerId, displayName }
+- participant_left { peerId }
+- signal_error { code, message }
+- server_notice { message }
+
+All payloads must be validated; invalid messages must be rejected and rate-limited.
+
+### Auth (MVP)
+- Provide a dev auth mode:
+  - optional JWT with a locally generated dev secret
+  - simple endpoint /auth/dev that returns a token for a username
+- Design so it can be replaced with real auth later.
+- Never trust client-supplied identity; derive userId from token.
+
+### Security & Abuse Protection
+- Rate limit connection attempts and signaling spam.
+- Limit rooms joined per connection.
+- Limit max participants per room for MVP (e.g., 8).
+- Disconnect abusive clients.
+- Do not log SDP contents in production logs.
+- Sanitize logs.
+
+### WebRTC Audio Setup
+- Use getUserMedia audio only (no video).
+- Enable echoCancellation, noiseSuppression, autoGainControl where supported.
+- Provide clear connection state UI: “connecting / connected / failed”.
+
+### TURN
+- Provide a working local TURN config using coturn.
+- Document how to set ICE servers in client.
+- For local dev you may allow STUN only; but TURN must be available and tested.
+
+## Non-Functional Requirements
+- Must be easy to run locally with one command:
+  - docker compose up (coturn + signaling)
+  - npm install && npm run dev for demo
+- Stable reconnection behavior:
+  - if ws disconnects, client should attempt reconnect and rejoin room
+- Observability:
+  - structured logs
+  - health endpoint /health
+  - basic metrics plan (document, no need to implement yet)
+
+## Quality Requirements
+- Clean separation:
+  - Domain logic must not depend on ws implementation.
+  - Message schemas/types must be centralized.
+- Typed boundaries:
+  - No “any”, no implicit types.
+- Tests:
+  - Unit tests for domain room membership and validation
+  - Basic protocol tests (message routing)
+
+## Deliverables (in order)
+1) Create /webrtc folder structure and READMEs.
+2) Implement signaling server skeleton:
+   - ws server
+   - message validation
+   - join/leave room
+   - offer/answer/candidate routing
+3) Implement web demo client:
+   - connect to signaling
+   - join room
+   - establish audio between two browser tabs
+4) Add coturn docker config + docs
+5) Provide a “Replacement Plan” document:
+   - how the current desktop app could later switch from Mumble to WebRTC
+   - but do NOT perform the replacement yet.
+
+## Rules of Engagement With Existing Repo
+- Treat existing Mumble-based backend and desktop app as “legacy stable” for now.
+- Do not change their networking, ports, or dependencies.
+- Do not refactor existing code “to share types” unless I explicitly ask.
+- Keep all WebRTC work isolated under /webrtc.
+
+## Definition of Done (MVP WebRTC)
+- Two browsers can join the same room and talk with low latency.
+- Works behind typical NAT when TURN is enabled.
+- Signaling is validated, rate-limited, and authenticated (dev auth acceptable).
+- Clear docs: how to run locally and how to troubleshoot.
+- No changes that impact the existing desktop/Mumble flow.
+
+Start by scanning the repo to understand the existing structure, then create /webrtc as described. Provide a step-by-step plan before coding. Then implement Milestone 1 and 2 (signaling skeleton + demo client) end-to-end.
