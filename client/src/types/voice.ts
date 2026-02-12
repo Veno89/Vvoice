@@ -10,6 +10,8 @@ export type ActiveUser = {
   isSpeaking?: boolean;
   self_mute?: boolean;
   self_deaf?: boolean;
+  avatar_url?: string;
+  comment?: string;
   [key: string]: unknown;
 };
 

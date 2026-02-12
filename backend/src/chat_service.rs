@@ -1,22 +1,23 @@
 use crate::codec::{MumblePacket, TextMessage};
+use crate::db::Database;
 use crate::state::{SharedState, Tx};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tracing::error;
 
-pub enum ChatHandling {
-    CommandResponse(MumblePacket),
-    Broadcast {
-        packet: MumblePacket,
-        recipients: Vec<Tx>,
-        persist_content: String,
-    },
-    None,
-}
-
-pub fn process_text_message(
+/// Core logic for handling chat messages.
+/// Returns: (Command Response, Broadcast Packet + Recipients, Content to Persist)
+pub fn resolve_chat_logic(
     state: &mut SharedState,
     session_id: u32,
-    msg: TextMessage,
-) -> ChatHandling {
+    mut msg: TextMessage,
+) -> (
+    Option<MumblePacket>,
+    Option<(MumblePacket, Vec<Tx>)>,
+    Option<(String, i32)>,
+) {
     let content = msg.message.clone();
+    msg.actor = Some(session_id);
 
     if content.starts_with("/echo") {
         if let Some(peer) = state.peers.get_mut(&session_id) {
@@ -29,96 +30,137 @@ pub fn process_text_message(
                 if peer.echo_enabled { "ON" } else { "OFF" }
             );
 
-            return ChatHandling::CommandResponse(MumblePacket::TextMessage(sys_msg));
+            (Some(MumblePacket::TextMessage(sys_msg)), None, None)
+        } else {
+            (None, None, None)
+        }
+    } else {
+        if msg.timestamp.is_none() {
+            msg.timestamp = Some(chrono::Utc::now().timestamp() as u64);
         }
 
-        return ChatHandling::None;
+        let sender_channel_id = state.peers.get(&session_id).map(|p| p.channel_id).unwrap_or(0);
+
+        let recipients = state
+            .peers
+            .values()
+            .filter(|peer| peer.channel_id == sender_channel_id)
+            .map(|peer| peer.tx.clone())
+            .collect::<Vec<_>>();
+
+        (
+            None,
+            Some((MumblePacket::TextMessage(msg), recipients)),
+            Some((content, sender_channel_id as i32)),
+        )
+    }
+}
+
+pub async fn handle_chat_packet(
+    state: &Arc<Mutex<SharedState>>,
+    db: &Database,
+    tx: &Tx,
+    session_id: u32,
+    username: &str,
+    msg: TextMessage,
+) {
+    let (response_packet, recipients_to_broadcast, persist_data) = {
+        let mut s = state.lock().await;
+        resolve_chat_logic(&mut s, session_id, msg)
+    };
+
+    // 1. Send Command Response (to self/client)
+    if let Some(packet) = response_packet {
+        let _ = tx.try_send(packet);
     }
 
-    let mut broadcast_msg = msg;
-    if broadcast_msg.timestamp.is_none() {
-        broadcast_msg.timestamp = Some(chrono::Utc::now().timestamp() as u64);
+    // 2. Broadcast Chat
+    if let Some((packet, recipients)) = recipients_to_broadcast {
+        for recipient in recipients {
+            let _ = recipient.try_send(packet.clone());
+        }
     }
 
-    let recipients = state
-        .peers
-        .values()
-        .map(|peer| peer.tx.clone())
-        .collect::<Vec<_>>();
-
-    ChatHandling::Broadcast {
-        packet: MumblePacket::TextMessage(broadcast_msg),
-        recipients,
-        persist_content: content,
+    // 3. Persist to DB
+    if let Some((content, channel_id)) = persist_data {
+        let db_clone = db.clone();
+        let sender_name = username.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = db_clone.save_message(&sender_name, channel_id, &content).await {
+                error!("Failed to save message: {}", e);
+            }
+        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::codec::MumblePacket;
-    use crate::state::{Peer, SharedState};
+    use crate::state::Peer;
     use tokio::sync::mpsc;
 
-    fn peer(session_id: u32, channel_id: u32, echo_enabled: bool) -> Peer {
-        let (tx, _rx) = mpsc::channel(8);
+    fn test_peer(session_id: u32) -> Peer {
+        let (tx, _rx) = mpsc::channel(10);
         Peer {
             tx,
-            username: format!("u{}", session_id),
+            username: format!("User{}", session_id),
             session_id,
-            channel_id,
+            channel_id: 0,
             self_mute: false,
             self_deaf: false,
-            echo_enabled,
+            echo_enabled: false,
         }
     }
 
     #[test]
-    fn toggles_echo_and_returns_command_response() {
+    fn test_echo_command() {
         let mut state = SharedState::new();
-        state.add_peer(1, peer(1, 0, false));
+        state.add_peer(1, test_peer(1));
 
         let mut msg = TextMessage::default();
-        msg.message = "/echo".into();
+        msg.message = "/echo".to_string();
 
-        let result = process_text_message(&mut state, 1, msg);
+        let (resp, bcast, persist) = resolve_chat_logic(&mut state, 1, msg);
 
-        match result {
-            ChatHandling::CommandResponse(MumblePacket::TextMessage(response)) => {
-                assert!(response.message.contains("ON"));
-                assert!(state.peers.get(&1).expect("peer").echo_enabled);
+        assert!(resp.is_some());
+        assert!(bcast.is_none());
+        assert!(persist.is_none());
+
+        match resp.unwrap() {
+            MumblePacket::TextMessage(t) => {
+                assert!(t.message.contains("Echo mode: ON"));
             }
-            _ => panic!("unexpected result"),
+            _ => panic!("Expected TextMessage"),
         }
     }
 
     #[test]
-    fn broadcasts_regular_text_with_recipients() {
+    fn test_broadcast_chat() {
         let mut state = SharedState::new();
-        state.add_peer(1, peer(1, 0, false));
-        state.add_peer(2, peer(2, 0, false));
+        state.add_peer(1, test_peer(1));
+        state.add_peer(2, test_peer(2));
 
         let mut msg = TextMessage::default();
-        msg.message = "hello".into();
+        msg.message = "Hello".to_string();
 
-        let result = process_text_message(&mut state, 1, msg);
-        match result {
-            ChatHandling::Broadcast {
-                packet,
-                recipients,
-                persist_content,
-            } => {
-                assert_eq!(persist_content, "hello");
-                assert_eq!(recipients.len(), 2);
-                match packet {
-                    MumblePacket::TextMessage(text) => {
-                        assert_eq!(text.message, "hello");
-                        assert!(text.timestamp.is_some());
-                    }
-                    _ => panic!("unexpected packet type"),
-                }
+        let (resp, bcast, persist) = resolve_chat_logic(&mut state, 1, msg);
+
+        assert!(resp.is_none());
+        assert!(bcast.is_some());
+        assert!(persist.is_some());
+
+        let (packet, recipients) = bcast.unwrap();
+        assert_eq!(recipients.len(), 2);
+        match packet {
+            MumblePacket::TextMessage(t) => {
+                assert_eq!(t.message, "Hello");
+                assert!(t.timestamp.is_some());
             }
-            _ => panic!("unexpected result"),
+            _ => panic!("Expected TextMessage"),
         }
+        
+        let (content, channel_id) = persist.unwrap();
+        assert_eq!(content, "Hello");
+        assert_eq!(channel_id, 0);
     }
 }

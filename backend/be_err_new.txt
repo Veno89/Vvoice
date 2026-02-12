@@ -1,0 +1,228 @@
+﻿cargo :    Compiling b
+ackend v0.1.0 (C:\User
+s\Zhitn\Desktop\Vvoice
+\backend)
+At line:1 char:1
++ cargo check 2>&1 | O
+ut-File be_err_new.txt
+ -Encoding utf8
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (   Compili   
+ ng ba...Vvoice\ba    
+ckend):String) []    ,
+ RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+error[E0412]: cannot f
+ind type `DbChannel` i
+n this scope
+  --> src\db.rs:57:56
+   |
+57 |     pub async fn 
+get_all_channels(&self
+) -> Result<Vec<DbChan
+nel>> {
+   |                  
+                      
+                ^^^^^^
+^^^ not found in this 
+scope
+   |
+help: you might be mis
+sing a type parameter
+   |
+23 | impl<DbChannel> D
+atabase {
+   |     +++++++++++
+
+error[E0412]: cannot f
+ind type `DbChannel` i
+n this scope
+  --> src\db.rs:58:44
+   |
+58 |         let chann
+els = sqlx::query_as::
+<_, DbChannel>("SELECT
+ * FROM channels ORDER
+ BY id ASC")
+   |                  
+                      
+    ^^^^^^^^^ not foun
+d in this scope
+   |
+help: you might be mis
+sing a type parameter
+   |
+23 | impl<DbChannel> D
+atabase {
+   |     +++++++++++
+
+error[E0412]: cannot f
+ind type `DbMessage` i
+n this scope
+  --> src\db.rs:79:88
+   |
+79 |     pub async fn 
+get_recent_messages(&s
+elf, channel_id: i32, 
+limit: i64) -> Result<
+Vec<DbMessage>> {
+   |                  
+                      
+                      
+                      
+    ^^^^^^^^^ not foun
+d in this scope
+   |
+help: you might be mis
+sing a type parameter
+   |
+23 | impl<DbMessage> D
+atabase {
+   |     +++++++++++
+
+error[E0412]: cannot f
+ind type `DbMessage` i
+n this scope
+  --> src\db.rs:80:44
+   |
+80 |         let messa
+ges = sqlx::query_as::
+<_, DbMessage>(
+   |                  
+                      
+    ^^^^^^^^^ not foun
+d in this scope
+   |
+help: you might be mis
+sing a type parameter
+   |
+23 | impl<DbMessage> D
+atabase {
+   |     +++++++++++
+
+warning: unused import
+: `PgPoolOptions`
+ --> src\db.rs:3:30
+  |
+3 | use sqlx::postgres
+::{PgPool, PgPoolOptio
+ns};
+  |                   
+           ^^^^^^^^^^^
+^^
+  |
+  = note: `#[warn(unus
+ed_imports)]` (part of
+ `#[warn(unused)]`) on
+ by default
+
+warning: unused import
+: `tracing::info`
+ --> src\db.rs:4:5
+  |
+4 | use tracing::info;
+  |     ^^^^^^^^^^^^^
+
+warning: unused import
+: `MumbleCodec`
+ --> src\handler.rs:4:
+5
+  |
+4 |     MumbleCodec, M
+umblePacket, ServerSyn
+c, TextMessage, UserRe
+move, UserState, Versi
+on,
+  |     ^^^^^^^^^^^
+
+warning: unused import
+: `SinkExt`
+  --> src\handler.rs:1
+2:15
+   |
+12 | use futures::{Sin
+kExt, StreamExt};
+   |               ^^^
+^^^^
+
+warning: unused import
+: `tokio_util::codec::
+Framed`
+  --> src\handler.rs:1
+7:5
+   |
+17 | use tokio_util::c
+odec::Framed;
+   |     ^^^^^^^^^^^^^
+^^^^^^^^^^^^
+
+error[E0599]: no funct
+ion or associated item
+ named `connect` found
+ for struct `db::Datab
+ase` in the current sc
+ope
+  --> src\main.rs:33:2
+4
+   |
+33 |     let db = Data
+base::connect(&db_url)
+.await?;
+   |                  
+      ^^^^^^^ function
+ or associated item no
+t found in `db::Databa
+se`
+   |
+  ::: src\db.rs:7:1
+   |
+ 7 | pub struct Databa
+se {
+   | -----------------
+-- function or associa
+ted item `connect` not
+ found for this struct
+   |
+   = help: items from 
+traits can only be use
+d if the trait is impl
+emented and in scope
+   = note: the followi
+ng traits define an it
+em `connect`, perhaps 
+you need to implement 
+one of them:
+           candidate #
+1: `ConnectOptions`
+           candidate #
+2: `sqlx::Connection`
+
+warning: unused import
+: `StreamExt`
+  --> src\handler.rs:1
+2:24
+   |
+12 | use futures::{Sin
+kExt, StreamExt};
+   |                  
+      ^^^^^^^^^
+
+Some errors have detai
+led explanations: E041
+2, E0599.
+For more information a
+bout an error, try `ru
+stc --explain E0412`.
+warning: `backend` (bi
+n "backend") generated
+ 6 warnings
+error: could not compi
+le `backend` (bin "bac
+kend") due to 5 previo
+us errors; 6 warnings 
+emitted

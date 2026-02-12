@@ -14,6 +14,8 @@ pub struct DbUser {
     pub username: String,
     pub password_hash: String,
     pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub avatar_url: Option<String>,
+    pub bio: Option<String>,
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Deserialize)]
@@ -99,6 +101,18 @@ impl Database {
         )
         .bind(username)
         .bind(password_hash)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(user)
+    }
+
+    pub async fn update_user_profile(&self, username: &str, avatar_url: Option<String>, bio: Option<String>) -> Result<DbUser> {
+        let user = sqlx::query_as::<_, DbUser>(
+            "UPDATE users SET avatar_url = $1, bio = $2 WHERE username = $3 RETURNING *"
+        )
+        .bind(avatar_url)
+        .bind(bio)
+        .bind(username)
         .fetch_one(&self.pool)
         .await?;
         Ok(user)

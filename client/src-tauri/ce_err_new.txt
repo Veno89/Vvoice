@@ -1,0 +1,44 @@
+﻿cargo :     Checking c
+lient v0.1.0 (C:\Users
+\Zhitn\Desktop\Vvoice\
+client\src-tauri)
+At line:1 char:1
++ cargo check 2>&1 | O
+ut-File ce_err_new.txt
+ -Encoding utf8
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo    
+          : NotSpeci  
+  fied: (    Checki   
+ ng cl...ient\src-    
+tauri):String) []    ,
+ RemoteException
+    + FullyQualifiedE 
+   rrorId : NativeCo  
+  mmandError
+ 
+error[E0609]: no field
+ `avatar_url` on type 
+`mumble_proto::UserSta
+te`
+   --> src\mumble.rs:2
+70:13
+    |
+270 |         msg.avat
+ar_url = avatar_url;
+    |             ^^^^
+^^^^^^ unknown field
+    |
+    = note: available 
+fields are: `session`,
+ `actor`, `name`, `use
+r_id`, `channel_id` ..
+. and 14 others
+
+For more information a
+bout this error, try `
+rustc --explain E0609`
+.
+error: could not compi
+le `client` (lib) due 
+to 1 previous error

@@ -107,6 +107,7 @@ message UserState {
 	optional bytes texture_hash = 17;
 	optional bool priority_speaker = 18;
 	optional bool recording = 19;
+	optional string avatar_url = 20;
 }
 
 message BanList {

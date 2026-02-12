@@ -52,6 +52,22 @@ pub fn process_user_state_update(
         }
     }
 
+    if let Some(ref url) = state_update.avatar_url {
+        if let Some(peer) = state.peers.get_mut(&session_id) {
+            peer.avatar_url = Some(url.clone());
+            update.avatar_url = Some(url.clone());
+            changes = true;
+        }
+    }
+
+    if let Some(ref bio) = state_update.comment {
+        if let Some(peer) = state.peers.get_mut(&session_id) {
+            peer.bio = Some(bio.clone());
+            update.comment = Some(bio.clone());
+            changes = true;
+        }
+    }
+
     if changes {
         info!(
             "User {} updated state: Mute={:?} Deaf={:?}",
@@ -89,6 +105,8 @@ mod tests {
             self_mute: false,
             self_deaf: false,
             echo_enabled: false,
+            avatar_url: None,
+            bio: None,
         }
     }
 

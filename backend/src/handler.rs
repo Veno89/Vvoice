@@ -1,22 +1,20 @@
 use crate::auth_service::{authenticate_or_register, AuthDecision};
-use crate::chat_service::{process_text_message, ChatHandling};
+use crate::chat_service::handle_chat_packet;
 use crate::codec::{
-    MumbleCodec, MumblePacket, ServerSync, TextMessage, UserRemove, UserState, Version,
+    MumblePacket, ServerSync, TextMessage, UserRemove, UserState, Version,
 };
+use crate::connection::Connection;
 use crate::db::Database;
 use crate::session_service::process_user_state_update;
 use crate::state::{Peer, SharedState, Tx};
-use crate::voice_router::collect_voice_recipients;
+use crate::voice_service::process_voice_packet;
 use anyhow::Result;
-use futures::{SinkExt, StreamExt};
+use futures::StreamExt;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex};
 use tokio_rustls::server::TlsStream;
-use tokio_util::codec::Framed;
 use tracing::{error, info};
-
-type ServerFramed = Framed<TlsStream<TcpStream>, MumbleCodec>;
 
 fn broadcast(packet: MumblePacket, recipients: &[Tx]) {
     for recipient in recipients {
@@ -25,11 +23,12 @@ fn broadcast(packet: MumblePacket, recipients: &[Tx]) {
 }
 
 async fn perform_handshake(
-    framed: &mut ServerFramed,
+    connection: &mut Connection,
     db: &Database,
-    peer_addr: std::net::SocketAddr,
 ) -> Result<String> {
-    if let Some(Ok(MumblePacket::Version(v))) = framed.next().await {
+    let peer_addr = connection.peer_addr();
+
+    if let Some(MumblePacket::Version(v)) = connection.read_packet().await? {
         info!(
             "Client {} Version: {:?} OS: {:?}",
             peer_addr, v.version, v.os
@@ -38,7 +37,7 @@ async fn perform_handshake(
         anyhow::bail!("Expected Version packet");
     }
 
-    if let Some(Ok(MumblePacket::Authenticate(auth))) = framed.next().await {
+    if let Some(MumblePacket::Authenticate(auth)) = connection.read_packet().await? {
         match authenticate_or_register(db, auth).await? {
             AuthDecision::Accepted { username } => {
                 info!("Client {} authenticated as: {:?}", peer_addr, username);
@@ -49,7 +48,7 @@ async fn perform_handshake(
                     .reason
                     .clone()
                     .unwrap_or_else(|| "Authentication rejected".to_string());
-                framed.send(MumblePacket::Reject(reject)).await?;
+                connection.write_packet(MumblePacket::Reject(reject)).await?;
                 anyhow::bail!("Authentication failed for {}: {}", peer_addr, reason);
             }
         }
@@ -60,10 +59,19 @@ async fn perform_handshake(
 
 async fn setup_session(
     state: &Arc<Mutex<SharedState>>,
+    db: &Database,
     username: &str,
 ) -> (u32, Tx, mpsc::Receiver<MumblePacket>) {
     let (tx, rx) = mpsc::channel(256);
     let session_id;
+
+    // Fetch user profile
+    let db_user = db.get_user_by_username(username).await.unwrap_or(None);
+    let (avatar, bio) = if let Some(u) = db_user {
+        (u.avatar_url, u.bio)
+    } else {
+        (None, None)
+    };
 
     {
         let mut s = state.lock().await;
@@ -78,6 +86,8 @@ async fn setup_session(
         new_user_msg.name = Some(username.to_string());
         new_user_msg.user_id = Some(session_id);
         new_user_msg.channel_id = Some(0);
+        new_user_msg.avatar_url = avatar.clone();
+        new_user_msg.comment = bio.clone();
 
         for peer in s.peers.values() {
             let mut existing_user = UserState::default();
@@ -86,6 +96,9 @@ async fn setup_session(
             existing_user.channel_id = Some(peer.channel_id);
             existing_user.self_mute = Some(peer.self_mute);
             existing_user.self_deaf = Some(peer.self_deaf);
+            existing_user.avatar_url = peer.avatar_url.clone();
+            existing_user.comment = peer.bio.clone();
+            
             let _ = tx.try_send(MumblePacket::UserState(existing_user));
 
             let _ = peer
@@ -103,6 +116,8 @@ async fn setup_session(
                 self_mute: false,
                 self_deaf: false,
                 echo_enabled: false,
+                avatar_url: avatar,
+                bio: bio,
             },
         );
     }
@@ -111,7 +126,7 @@ async fn setup_session(
 }
 
 async fn send_initial_state(
-    framed: &mut ServerFramed,
+    connection: &mut Connection,
     state: &Arc<Mutex<SharedState>>,
     db: &Database,
     username: &str,
@@ -119,7 +134,7 @@ async fn send_initial_state(
 ) -> Result<()> {
     let mut version = Version::default();
     version.version = Some(1 << 16 | 3 << 8 | 0);
-    framed.send(MumblePacket::Version(version)).await?;
+    connection.write_packet(MumblePacket::Version(version)).await?;
 
     {
         let s = state.lock().await;
@@ -128,7 +143,7 @@ async fn send_initial_state(
 
         info!("Sent {} channels to {}", channels.len(), username);
         for channel in channels {
-            framed.send(MumblePacket::ChannelState(channel)).await?;
+            connection.write_packet(MumblePacket::ChannelState(channel)).await?;
         }
     }
 
@@ -137,14 +152,14 @@ async fn send_initial_state(
     self_state.name = Some(username.to_string());
     self_state.user_id = Some(session_id);
     self_state.channel_id = Some(0);
-    framed.send(MumblePacket::UserState(self_state)).await?;
+    connection.write_packet(MumblePacket::UserState(self_state)).await?;
 
     let mut sync = ServerSync::default();
     sync.session = Some(session_id);
     sync.max_bandwidth = Some(128000);
     sync.welcome_text =
         Some("Welcome to Vvoice Rust Server! Type /echo to toggle loopback.".into());
-    framed.send(MumblePacket::ServerSync(sync)).await?;
+    connection.write_packet(MumblePacket::ServerSync(sync)).await?;
 
     if let Ok(recent) = db.get_recent_messages(0, 50).await {
         for msg in recent {
@@ -154,7 +169,7 @@ async fn send_initial_state(
             if let Some(created_at) = msg.created_at {
                 text.timestamp = Some(created_at.timestamp() as u64);
             }
-            framed.send(MumblePacket::TextMessage(text)).await?;
+            connection.write_packet(MumblePacket::TextMessage(text)).await?;
         }
     }
 
@@ -174,54 +189,50 @@ async fn handle_incoming_packet(
             let _ = tx.try_send(MumblePacket::Ping(p));
         }
         MumblePacket::UDPTunnel(msg) => {
-            let recipients = {
-                let s = state.lock().await;
-                collect_voice_recipients(&s, session_id)
-            };
-
-            if !recipients.is_empty() {
-                broadcast(MumblePacket::UDPTunnel(msg), &recipients);
-            }
+            process_voice_packet(state, session_id, msg).await;
         }
         MumblePacket::TextMessage(msg) => {
-            let action = {
-                let mut s = state.lock().await;
-                process_text_message(&mut s, session_id, msg)
-            };
-
-            match action {
-                ChatHandling::CommandResponse(packet) => {
-                    let _ = tx.try_send(packet);
-                }
-                ChatHandling::Broadcast {
-                    packet,
-                    recipients,
-                    persist_content,
-                } => {
-                    broadcast(packet, &recipients);
-
-                    let db_clone = db.clone();
-                    let sender_name = username.to_string();
-                    tokio::spawn(async move {
-                        if let Err(e) = db_clone
-                            .save_message(&sender_name, 0, &persist_content)
-                            .await
-                        {
-                            error!("Failed to save message: {}", e);
-                        }
-                    });
-                }
-                ChatHandling::None => {}
-            }
+            handle_chat_packet(state, db, tx, session_id, username, msg).await;
         }
         MumblePacket::UserState(state_update) => {
+            // Save profile updates to DB
+            if state_update.avatar_url.is_some() || state_update.comment.is_some() {
+                 let _ = db.update_user_profile(
+                     username, 
+                     state_update.avatar_url.clone(), 
+                     state_update.comment.clone()
+                 ).await;
+            }
+
             let session_update = {
                 let mut s = state.lock().await;
                 process_user_state_update(&mut s, session_id, username, state_update)
             };
 
             if let Some(update) = session_update.channel_update {
-                broadcast(MumblePacket::UserState(update), &session_update.recipients);
+                broadcast(MumblePacket::UserState(update.clone()), &session_update.recipients);
+
+                // Send history for the new channel
+                if let Some(chan_id) = update.channel_id {
+                    let db_clone = db.clone();
+                    let tx_clone = tx.clone();
+                    let session_id_copy = session_id;
+                    
+                    // Spawn to avoid blocking the handler loop with DB calls
+                    tokio::spawn(async move {
+                         if let Ok(recent) = db_clone.get_recent_messages(chan_id as i32, 50).await {
+                             for msg in recent {
+                                 let mut text = TextMessage::default();
+                                 text.message = format!("[History] {}: {}", msg.sender_name, msg.content);
+                                 text.session = vec![session_id_copy];
+                                 if let Some(created_at) = msg.created_at {
+                                     text.timestamp = Some(created_at.timestamp() as u64);
+                                 }
+                                 let _ = tx_clone.try_send(MumblePacket::TextMessage(text));
+                             }
+                         }
+                    });
+                }
             }
 
             if let Some(update) = session_update.state_delta {
@@ -253,18 +264,18 @@ pub async fn handle_client(
     peer_addr: std::net::SocketAddr,
     db: Database,
 ) -> Result<()> {
-    let mut framed = Framed::new(stream, MumbleCodec);
+    let mut connection = Connection::new(stream, peer_addr);
 
-    let username = perform_handshake(&mut framed, &db, peer_addr).await?;
-    let (session_id, tx, mut rx) = setup_session(&state, &username).await;
-    send_initial_state(&mut framed, &state, &db, &username, session_id).await?;
+    let username = perform_handshake(&mut connection, &db).await?;
+    let (session_id, tx, mut rx) = setup_session(&state, &db, &username).await;
+    send_initial_state(&mut connection, &state, &db, &username, session_id).await?;
 
     loop {
         tokio::select! {
             msg = rx.recv() => {
                 match msg {
                     Some(packet) => {
-                        if let Err(e) = framed.send(packet).await {
+                        if let Err(e) = connection.write_packet(packet).await {
                              error!("Failed to send packet to {}: {}", username, e);
                              break;
                         }
@@ -272,16 +283,19 @@ pub async fn handle_client(
                     None => break,
                 }
             }
-            packet = framed.next() => {
+            packet = connection.read_packet() => {
                  match packet {
-                    Some(Ok(pkt)) => {
+                    Ok(Some(pkt)) => {
                         handle_incoming_packet(pkt, &tx, &state, &db, &username, session_id).await;
                     }
-                    Some(Err(e)) => {
+                    Ok(None) => {
+                        // Connection closed cleanly
+                        break;
+                    }
+                    Err(e) => {
                         error!("Connection error from {}: {}", username, e);
                         break;
                     }
-                    None => break,
                  }
             }
         }

@@ -1,0 +1,47 @@
+    Checking client v0.1.0 (C:\Users\Zhitn\Desktop\Vvoice\client\src-tauri)
+warning: unused variable: `audio_for_thread`
+   --> src\mumble.rs:155:13
+    |
+155 |         let audio_for_thread = Arc::new(audio); 
+    |             ^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_audio_for_thread`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+error[E0382]: use of moved value: `audio`
+   --> src\mumble.rs:226:30
+    |
+146 |         let mut audio = AudioSystem::new()?;
+    |             --------- move occurs because `audio` has type `AudioSystem`, which does not implement the `Copy` trait
+...
+155 |         let audio_for_thread = Arc::new(audio); 
+    |                                         ----- value moved here
+...
+226 |         let audio = Arc::new(audio);
+    |                              ^^^^^ value used here after move
+    |
+note: if `AudioSystem` implemented `Clone`, you could clone the value
+   --> src\audio.rs:14:1
+    |
+ 14 | pub struct AudioSystem {
+    | ^^^^^^^^^^^^^^^^^^^^^^ consider implementing `Clone` for this type
+    |
+   ::: src\mumble.rs:155:41
+    |
+155 |         let audio_for_thread = Arc::new(audio); 
+    |                                         ----- you could clone this value
+
+error[E0282]: type annotations needed
+  --> src\audio.rs:50:23
+   |
+50 |         let err_fn = |err| eprintln!("an error occurred on output stream: {}", err);
+   |                       ^^^
+   |
+help: consider giving this closure parameter an explicit type
+   |
+50 |         let err_fn = |err: /* Type */| eprintln!("an error occurred on output stream: {}", err);
+   |                          ++++++++++++
+
+Some errors have detailed explanations: E0282, E0382.
+For more information about an error, try `rustc --explain E0282`.
+warning: `client` (lib) generated 1 warning
+error: could not compile `client` (lib) due to 2 previous errors; 1 warning emitted

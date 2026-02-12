@@ -1,21 +1,35 @@
-import { useState } from 'react';
-import { User, Key, Server, Radio } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { User, Key, Server, Radio, CheckSquare, Square } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useSettingsStore } from '../store/settingsStore';
 
 interface LoginModalProps {
-    onConnect: (username: string, password: string) => void; // host/port omitted for MVP (localhost)
+    onConnect: (username: string, password: string, serverAddress: string) => void;
     isConnecting: boolean;
 }
 
 export function LoginModal({ onConnect, isConnecting }: LoginModalProps) {
+    const { savedUsername, savedPassword, savedServerAddress, rememberMe, setCredentials } = useSettingsStore();
+
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    // const [host, setHost] = useState('127.0.0.1');
+    const [serverAddress, setServerAddress] = useState('127.0.0.1');
+    const [remember, setRemember] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    useEffect(() => {
+        if (rememberMe && savedUsername) {
+            setUsername(savedUsername);
+            setPassword(savedPassword || '');
+            setServerAddress(savedServerAddress || '127.0.0.1');
+            setRemember(true);
+        }
+    }, [rememberMe, savedUsername, savedPassword, savedServerAddress]);
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (username && password) {
-            onConnect(username, password);
+        if (username && password && serverAddress) {
+            await setCredentials(username, password, serverAddress, remember);
+            onConnect(username, password, serverAddress);
         }
     };
 
@@ -33,6 +47,18 @@ export function LoginModal({ onConnect, isConnecting }: LoginModalProps) {
             </div>
 
             <form onSubmit={handleSubmit} className="login-form">
+                <div className="input-group">
+                    <Server size={18} className="input-icon" />
+                    <input
+                        type="text"
+                        placeholder="Server Address"
+                        value={serverAddress}
+                        onChange={(e) => setServerAddress(e.target.value)}
+                        disabled={isConnecting}
+                        required
+                    />
+                </div>
+
                 <div className="input-group">
                     <User size={18} className="input-icon" />
                     <input
@@ -58,23 +84,28 @@ export function LoginModal({ onConnect, isConnecting }: LoginModalProps) {
                     />
                 </div>
 
-                {/* 
-        <div className="input-group">
-          <Globe size={18} className="input-icon" />
-          <input 
-            type="text" 
-            placeholder="Server Address (IP:Port)" 
-            value={host}
-            onChange={(e) => setHost(e.target.value)}
-            disabled={isConnecting}
-          />
-        </div> 
-        */}
+                <div
+                    className="remember-me"
+                    onClick={() => setRemember(!remember)}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        cursor: 'pointer',
+                        color: 'var(--text-dim)',
+                        fontSize: '0.9rem',
+                        alignSelf: 'flex-start',
+                        paddingLeft: 4
+                    }}
+                >
+                    {remember ? <CheckSquare size={18} color="var(--primary)" /> : <Square size={18} />}
+                    <span>Remember me</span>
+                </div>
 
                 <button
                     type="submit"
                     className={`btn-large ${isConnecting ? 'loading' : ''}`}
-                    disabled={!username || !password || isConnecting}
+                    disabled={!username || !password || !serverAddress || isConnecting}
                 >
                     {isConnecting ? 'Connecting...' : 'Connect'}
                     {!isConnecting && <Radio size={18} style={{ marginLeft: 8 }} />}

@@ -1,41 +1,58 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, X, Settings2, Activity } from 'lucide-react';
+import { Mic, X, Settings2, Activity, User } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { useSettingsStore } from '../store/settingsStore';
+import { useVoiceStore } from '../store/useVoiceStore';
 
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
-    currentDevice: string | null;
-    currentVad: number;
-    onSave: (device: string | null, vad: number) => void;
 }
 
-export function SettingsModal({ isOpen, onClose, currentDevice, currentVad, onSave }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+    const { inputDevice, vadThreshold: storeVad, setInputDevice, setVadThreshold } = useSettingsStore();
+    const { currentUsername, activeUsers, setProfile } = useVoiceStore();
+    const currentUser = activeUsers.find(u => u.name === currentUsername);
+
+    // Local state for "draft" settings before saving
     const [devices, setDevices] = useState<string[]>([]);
-    const [selectedDevice, setSelectedDevice] = useState<string | null>(currentDevice);
-    const [vadThreshold, setVadThreshold] = useState(currentVad);
+    const [selectedDevice, setSelectedDevice] = useState<string | null>(inputDevice);
+    const [vadThreshold, setVadThresholdLocal] = useState(storeVad);
+    const [avatarUrl, setAvatarUrl] = useState('');
+    const [bio, setBio] = useState('');
 
     useEffect(() => {
         if (isOpen) {
+            // Sync with store on open
+            setSelectedDevice(inputDevice);
+            setVadThresholdLocal(storeVad);
+            setAvatarUrl(currentUser?.avatar_url || '');
+            setBio(currentUser?.comment || '');
+
             invoke<string[]>('get_input_devices')
                 .then(devs => {
                     console.log("Devices:", devs);
                     setDevices(devs);
                     // If no device selected and devices exist, select first
-                    if (!selectedDevice && devs.length > 0) {
+                    if (!inputDevice && !selectedDevice && devs.length > 0) {
                         setSelectedDevice(devs[0]);
                     }
                 })
                 .catch(e => console.error("Failed to get devices:", e));
         }
-    }, [isOpen]);
+    }, [isOpen, inputDevice, storeVad, currentUser]);
 
     const handleSave = () => {
-        onSave(selectedDevice, vadThreshold);
-        // If connected, apply VAD immediately
+        // Save to store (persists to disk)
+        setInputDevice(selectedDevice);
+        setVadThreshold(vadThreshold);
+        void setProfile(avatarUrl, bio);
+
+        // Apply immediately if connected
         invoke('set_vad_threshold', { threshold: vadThreshold })
-            .catch(() => { }); // If not connected, it's fine
+            .catch(() => { });
+
         onClose();
     };
 
@@ -91,11 +108,41 @@ export function SettingsModal({ isOpen, onClose, currentDevice, currentVad, onSa
                                         max="0.1"
                                         step="0.001"
                                         value={vadThreshold}
-                                        onChange={e => setVadThreshold(parseFloat(e.target.value))}
+                                        onChange={e => setVadThresholdLocal(parseFloat(e.target.value))}
                                     />
                                     <span className="value-badge">{vadThreshold.toFixed(4)}</span>
                                 </div>
                                 <p className="setting-hint">Adjust until background noise is ignored.</p>
+                            </div>
+
+                            {/* Profile Settings */}
+                            <div className="setting-group" style={{ marginTop: 24, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+                                <label style={{ marginBottom: 8 }}>
+                                    <User size={16} />
+                                    <span>Profile Settings</span>
+                                </label>
+
+                                <div style={{ marginBottom: 12 }}>
+                                    <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Avatar URL</label>
+                                    <input
+                                        type="text"
+                                        value={avatarUrl}
+                                        onChange={e => setAvatarUrl(e.target.value)}
+                                        className="device-select"
+                                        placeholder="https://example.com/avatar.png"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: 4, display: 'block' }}>Bio</label>
+                                    <textarea
+                                        value={bio}
+                                        onChange={e => setBio(e.target.value)}
+                                        className="device-select"
+                                        style={{ height: 80, resize: 'vertical', fontFamily: 'inherit' }}
+                                        placeholder="Tell us about yourself..."
+                                    />
+                                </div>
                             </div>
                         </div>
 

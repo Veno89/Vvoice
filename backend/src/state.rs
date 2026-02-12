@@ -12,6 +12,8 @@ pub struct Peer {
     pub self_mute: bool,
     pub self_deaf: bool,
     pub echo_enabled: bool,
+    pub avatar_url: Option<String>,
+    pub bio: Option<String>,
 }
 
 pub struct SharedState {

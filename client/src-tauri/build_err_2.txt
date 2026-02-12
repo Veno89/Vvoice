@@ -1,0 +1,52 @@
+﻿cargo :     Checking client
+ v0.1.0 (C:\Users\Zhitn\Des
+ktop\Vvoice\client\src-taur
+i)
+At line:1 char:1
++ cargo check 2>&1 | Out-Fi
+le build_err_2.txt -Encodin
+g utf8
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo         
+     : NotSpecified: (     
+   Checking cl...ient\sr   
+ c-tauri):String) [], R    
+emoteException
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 
+error[E0282]: type annotati
+ons needed
+   --> src\lib.rs:189:38
+    |
+189 |     let client = Arc:
+:new(Mutex::new(None));
+    |                      
+                ^^^^ cannot
+ infer type of the type par
+ameter `T` declared on the 
+enum `Option`
+...
+234 |                      
+        client.set_mute(!is
+_pressed);
+    |                      
+               -------- typ
+e must be known at this poi
+nt
+    |
+help: consider specifying t
+he generic argument
+    |
+189 |     let client = Arc:
+:new(Mutex::new(None::<T>))
+;
+    |                      
+                    +++++
+
+For more information about 
+this error, try `rustc --ex
+plain E0282`.
+error: could not compile `c
+lient` (lib) due to 1 previ
+ous error

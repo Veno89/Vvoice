@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   Settings,
@@ -16,28 +16,27 @@ import {
 import { LoginModal } from "./components/LoginModal";
 import { SettingsModal } from "./components/SettingsModal";
 import { ChatWindow } from "./components/ChatWindow";
-import { useMumbleEvents } from "./hooks/useMumbleEvents";
-import { useVoiceConnection } from "./hooks/useVoiceConnection";
+import { useSettingsStore } from "./store/settingsStore";
+import { useVoiceStore } from "./store/useVoiceStore";
 
 export default function App() {
-  // Settings State
+  // Settings State (Local UI state)
   const [showSettings, setShowSettings] = useState(false);
-  const [audioSettings, setAudioSettings] = useState<{ device: string | null, vad: number }>({
-    device: null,
-    vad: 0.005
-  });
+  const { inputDevice, vadThreshold, loadSettings } = useSettingsStore();
 
-  // Chat State
   const [inputMessage, setInputMessage] = useState("");
 
-  const { channels, activeUsers, messages, reset } = useMumbleEvents();
+  // Global Voice Store
   const {
     isConnected,
+    isConnecting,
     isMuted,
     isDeafened,
-    isConnecting,
     currentUsername,
     currentUserRole,
+    channels,
+    activeUsers,
+    messages,
     connect,
     disconnect,
     joinChannel,
@@ -45,7 +44,34 @@ export default function App() {
     toggleEcho,
     toggleMute,
     toggleDeaf,
-  } = useVoiceConnection(reset);
+    setupListeners
+  } = useVoiceStore();
+
+  const currentUser = activeUsers.find(u => u.name === currentUsername);
+
+  // Initialize Listeners and Settings
+  useEffect(() => {
+    let isMounted = true;
+    let unlistenFn: (() => void) | undefined;
+
+    const init = async () => {
+      await loadSettings();
+      const result = await setupListeners();
+
+      if (isMounted) {
+        unlistenFn = result;
+      } else {
+        result(); // Unlisten immediately if component unmounted during await
+      }
+    };
+
+    init();
+
+    return () => {
+      isMounted = false;
+      if (unlistenFn) unlistenFn();
+    };
+  }, [setupListeners, loadSettings]);
 
   return (
     <div className="app-container">
@@ -89,7 +115,11 @@ export default function App() {
                     {activeUsers.filter(u => (u.channel_id || 0) === ch.channel_id).map(user => (
                       <div key={user.session} className="sidebar-user">
                         <div className="user-avatar-small">
-                          <User size={12} />
+                          {user.avatar_url ? (
+                            <img src={user.avatar_url} alt={user.name} className="avatar-img" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                          ) : (
+                            <User size={12} />
+                          )}
                           {user.isSpeaking && <div className="speaking-dot"></div>}
                         </div>
                         <span className="sidebar-username">{user.name ?? `User ${user.session}`}</span>
@@ -107,7 +137,11 @@ export default function App() {
           <div className="user-info">
             <div className="avatar-container">
               <div className="avatar">
-                <User size={22} color="white" />
+                {currentUser?.avatar_url ? (
+                  <img src={currentUser.avatar_url} alt={currentUsername} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                ) : (
+                  <User size={22} color="white" />
+                )}
               </div>
               <div className="status-indicator"></div>
             </div>
@@ -162,7 +196,7 @@ export default function App() {
         <header className="main-header">
           <div className="header-title">
             <Hash size={20} color="var(--text-muted)" />
-            <span>General</span>
+            <span>{channels.find(c => c.channel_id === (currentUser?.channel_id || 0))?.name || "General"}</span>
           </div>
           <div className="header-actions">
 
@@ -189,7 +223,10 @@ export default function App() {
           <AnimatePresence mode="wait">
             {!isConnected ? (
               <div className="splash-container">
-                <LoginModal onConnect={(username, password) => connect(username, password, audioSettings)} isConnecting={isConnecting} />
+                <LoginModal
+                  onConnect={(username, password, serverAddress) => connect(username, password, serverAddress, { device: inputDevice, vad: vadThreshold })}
+                  isConnecting={isConnecting}
+                />
               </div>
             ) : (
               <ChatWindow
@@ -206,14 +243,9 @@ export default function App() {
         </section>
       </main>
 
-
-
       <SettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
-        currentDevice={audioSettings.device}
-        currentVad={audioSettings.vad}
-        onSave={(device, vad) => setAudioSettings({ device, vad })}
       />
     </div >
   );

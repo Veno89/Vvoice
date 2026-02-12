@@ -97,6 +97,7 @@ impl Encoder<MumblePacket> for MumbleCodec {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum MumblePacket {
     Version(Version),
     UDPTunnel(UdpTunnel),

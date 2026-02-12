@@ -6,6 +6,8 @@ mod db;
 mod handler;
 mod session_service;
 mod state;
+mod connection;
+mod voice_service;
 mod voice_router;
 
 use anyhow::{Context, Result};
