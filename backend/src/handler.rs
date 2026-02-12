@@ -16,12 +16,6 @@ use tracing::{error, info};
 
 type ServerFramed = Framed<TlsStream<TcpStream>, MumbleCodec>;
 
-fn broadcast(packet: MumblePacket, recipients: &[Tx]) {
-    for recipient in recipients {
-        try_send_packet(recipient, packet.clone(), "handler_broadcast");
-    }
-}
-
 async fn perform_handshake(
     framed: &mut ServerFramed,
     db: &Database,
