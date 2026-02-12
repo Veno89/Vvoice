@@ -1,15 +1,28 @@
-# WebRTC Client Web Demo
+# WebRTC Client Web Demo (Milestone 2)
 
-This folder is intentionally isolated for parallel WebRTC development.
+Browser demo that connects to the isolated WebRTC signaling server and establishes peer-to-peer audio between participants in the same room.
 
-## Milestone status
-- Milestone 1: scaffold only (no production UI/RTC flow yet)
-- Milestone 2: will implement full join room + audio calling demo
+## Features
+- Join/leave room
+- Microphone selection
+- Mute/unmute local track
+- Participant list and mute state updates
+- WebRTC offer/answer/ICE signaling via WebSocket
+- Reconnect + automatic rejoin
+- Connection status and debug logs
 
-## Local run
+## Run
 ```bash
 npm install
 npm run dev
 ```
 
-Expected signaling backend URL for milestone 2: `ws://localhost:8080/ws`
+Defaults:
+- API base URL: `http://localhost:8080`
+- WS URL: `ws://localhost:8080/ws`
+
+Open two tabs, use different display names, join same room, and verify two-way audio.
+
+## ICE server notes
+- Client includes default public STUN server for local testing.
+- TURN example URL is included and should be aligned with your coturn credentials for relay tests.

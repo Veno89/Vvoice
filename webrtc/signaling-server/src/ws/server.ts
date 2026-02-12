@@ -146,9 +146,9 @@ export function registerWebSocketServer(app: FastifyInstance, cfg: ServerConfig)
               return;
             }
 
-            const senderPeerId = [...state.peerIds][0];
+            const senderPeerId = roomManager.findSenderPeerForTarget(connectionId, msg.toPeerId);
             if (!senderPeerId) {
-              sendError(ws, 'not_in_room', 'Join a room before signaling');
+              sendError(ws, 'not_in_room', 'Join the same room as target before signaling');
               return;
             }
 

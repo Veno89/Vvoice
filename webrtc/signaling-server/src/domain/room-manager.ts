@@ -117,6 +117,20 @@ export class RoomManager {
     return undefined;
   }
 
+  findSenderPeerForTarget(connectionId: string, targetPeerId: string): string | undefined {
+    for (const room of this.rooms.values()) {
+      const target = room.participants.get(targetPeerId);
+      if (!target) {
+        continue;
+      }
+
+      const sender = [...room.participants.values()].find((participant) => participant.connectionId === connectionId);
+      return sender?.peerId;
+    }
+
+    return undefined;
+  }
+
   getRoomParticipants(roomId: string): Participant[] {
     return [...(this.rooms.get(roomId)?.participants.values() ?? [])];
   }

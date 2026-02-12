@@ -23,4 +23,13 @@ describe('RoomManager', () => {
     manager.joinRoom('conn-1', 'user-1', 'Alice', 'room-a');
     expect(() => manager.joinRoom('conn-2', 'user-2', 'Bob', 'room-a')).toThrow('room_full');
   });
+
+  test('finds sender peer in shared room with target', () => {
+    const manager = new RoomManager(8, 2);
+    const alice = manager.joinRoom('conn-1', 'user-1', 'Alice', 'room-a');
+    const bob = manager.joinRoom('conn-2', 'user-2', 'Bob', 'room-a');
+
+    const senderPeer = manager.findSenderPeerForTarget('conn-1', bob.self.peerId);
+    expect(senderPeer).toBe(alice.self.peerId);
+  });
 });

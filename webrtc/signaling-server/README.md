@@ -1,15 +1,15 @@
-# WebRTC Signaling Server (Milestone 1)
+# WebRTC Signaling Server
 
 Parallel WebRTC signaling service for Vvoice. This service is isolated under `/webrtc` and does not modify the existing desktop/Mumble voice path.
 
-## Features (MVP milestone 1)
+## Features (MVP)
 - Fastify REST API
   - `GET /health`
   - `POST /auth/dev` -> issues dev JWT
 - WebSocket signaling endpoint at `/ws`
 - Zod validation for all inbound signaling messages
 - Room join/leave and participant presence broadcasting
-- Offer/answer/ICE relay between peers
+- Offer/answer/ICE relay between peers in shared rooms
 - Basic abuse controls
   - HTTP rate limiting
   - WS message burst limiting

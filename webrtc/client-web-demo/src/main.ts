@@ -1,1 +1,3 @@
-console.log('Vvoice WebRTC demo client scaffold initialized.');
+import { wireUi } from './ui/app';
+
+wireUi();

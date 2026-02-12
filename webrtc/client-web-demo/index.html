@@ -1,15 +1,74 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Vvoice WebRTC Demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; background: #0f1220; color: #f2f4ff; }
+      .card { background: #1a1f35; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; }
+      label { display:block; margin:.5rem 0 .25rem; }
+      input, select, button { padding:.5rem; margin-right:.5rem; border-radius:8px; border:1px solid #3c4466; background:#0f1220; color:#f2f4ff; }
+      button { cursor: pointer; }
+      .row { display:flex; gap:1rem; flex-wrap: wrap; }
+      #status { font-weight: 700; color:#8ad3ff; }
+      pre { max-height: 200px; overflow: auto; background:#0b0e19; padding:.75rem; border-radius:8px; }
+    </style>
   </head>
   <body>
-    <div id="app">
-      <h1>Vvoice WebRTC Demo</h1>
-      <p>Milestone 2 UI implementation pending. Milestone 1 provides signaling backend and protocol contracts.</p>
+    <h1>Vvoice WebRTC Browser Demo</h1>
+
+    <div class="card">
+      <div>Status: <span id="status">idle</span></div>
+      <form id="joinForm">
+        <div class="row">
+          <div>
+            <label for="apiBaseUrl">API base URL</label>
+            <input id="apiBaseUrl" value="http://localhost:8080" />
+          </div>
+          <div>
+            <label for="wsUrl">WS URL</label>
+            <input id="wsUrl" value="ws://localhost:8080/ws" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label for="username">Display name</label>
+            <input id="username" value="alice" />
+          </div>
+          <div>
+            <label for="roomId">Room ID</label>
+            <input id="roomId" value="dev-room" />
+          </div>
+          <div>
+            <label for="micDevice">Microphone</label>
+            <select id="micDevice"></select>
+          </div>
+        </div>
+        <button type="submit">Join Room</button>
+        <button id="leaveBtn" type="button">Leave</button>
+        <button id="muteBtn" type="button">Mute</button>
+      </form>
     </div>
+
+    <div class="card">
+      <h2>Participants</h2>
+      <ul id="participants"></ul>
+    </div>
+
+    <div class="card">
+      <h2>Audio</h2>
+      <p>Local</p>
+      <audio id="localAudio" controls autoplay muted></audio>
+      <p>Remote</p>
+      <div id="remoteAudioContainer"></div>
+    </div>
+
+    <div class="card">
+      <h2>Logs</h2>
+      <pre id="log"></pre>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

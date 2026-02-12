@@ -7,7 +7,14 @@
   - max participants per room
 - Protocol schema validation
 
-## Milestone 2 planned tests
-- Signaling round-trip integration tests with real ws clients
-- Reconnect/rejoin behavior tests
-- Browser E2E for two-tab room audio flow
+## Milestone 2 validation approach
+- Manual browser validation:
+  1. Open two tabs
+  2. Join same room with unique users
+  3. Verify participant list updates
+  4. Verify offer/answer/ICE exchange and two-way audio
+  5. Toggle mute and verify state updates
+  6. Stop signaling server briefly to verify reconnect + rejoin
+- TURN relay validation:
+  - configure turn credentials to match coturn
+  - force relay candidate policy during test
