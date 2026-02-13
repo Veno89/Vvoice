@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Updated `useVoiceStore` to fully manage state via WebRTC signaling.
 - Replaced Rust backend audio engine with WebRTC browser APIs.
 - Implemented global Push-to-Talk (PTT) using Tauri events in a lightweight Rust shell.
+- **Project Structure**: Renamed `webrtc/signaling-server` to `server/`, moved docs to `docs/webrtc`, and demos to `examples/`.
 
 ### Removed
 - Legacy Rust backend (`backend/` directory) including Mumble server logic and database migrations.

@@ -15,8 +15,10 @@ A modern, high-performance voice chat application built with **WebRTC** (Voice) 
 -   **`client/`**: The Vvoice Desktop Client.
     -   **Frontend (`src/`)**: React + TypeScript + Zustand + WebRTC logic.
     -   **Backend (`src-tauri/`)**: Lightweight Rust shell for OS integration (Global PTT, Tray, etc).
--   **`webrtc/signaling-server/`**: The Node.js Signaling Server.
+-   **`server/`**: The Node.js Signaling Server.
     -   Handles WebSocket connections, room management, and signaling exchange.
+-   **`examples/`**: Demo applications (e.g., Web Client Demo).
+-   **`docs/`**: Project documentation.
 
 ## Getting Started
 
@@ -28,7 +30,7 @@ A modern, high-performance voice chat application built with **WebRTC** (Voice) 
 ### 1. Signaling Server Setup
 
 ```bash
-cd webrtc/signaling-server
+cd server
 npm install
 npm run dev
 # Server runs on localhost:3000
