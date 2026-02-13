@@ -18,6 +18,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { ChatWindow } from "./components/ChatWindow";
 import { useSettingsStore } from "./store/settingsStore";
 import { useVoiceStore } from "./store/useVoiceStore";
+import { AudioRenderer } from "./components/AudioRenderer";
 
 export default function App() {
   // Settings State (Local UI state)
@@ -247,6 +248,7 @@ export default function App() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
       />
+      <AudioRenderer />
     </div >
   );
 }

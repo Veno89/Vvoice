@@ -25,7 +25,7 @@ export function registerWebSocketServer(app: FastifyInstance, cfg: ServerConfig)
   const byPeerId = new Map<string, ConnectionState>();
   const msgRateLimiter = new SlidingWindowRateLimiter(cfg.wsMessageBurst, cfg.wsMessageWindowMs);
 
-  app.server.on('upgrade', (request, socket, head) => {
+  app.server.on('upgrade', (request: any, socket: any, head: any) => {
     if (request.url !== '/ws') {
       socket.destroy();
       return;
@@ -134,6 +134,28 @@ export function registerWebSocketServer(app: FastifyInstance, cfg: ServerConfig)
               roomId: msg.roomId,
               peerId: participant.peerId,
               muted: participant.muted
+            });
+            break;
+          }
+          case 'chat_message': {
+            // Verify user is in room
+            const participants = roomManager.getRoomParticipants(msg.roomId);
+            const isInRoom = participants.some(p => p.connectionId === connectionId);
+
+            if (!isInRoom) {
+              sendError(ws, 'not_in_room', 'You must join the room to send messages');
+              return;
+            }
+
+            const senderPeerId = [...state.peerIds][0]; // Assuming 1 active peer per connection for now
+
+            broadcastRoom(roomManager, msg.roomId, {
+              type: 'chat_message',
+              roomId: msg.roomId,
+              senderId: senderPeerId || state.userId, // Use peerId if available, fallback to userId
+              displayName: state.displayName,
+              content: msg.content,
+              timestamp: Date.now()
             });
             break;
           }

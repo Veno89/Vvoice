@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC Voice Demo</title>
+    <style>
+      body { font-family: sans-serif; padding: 20px; background: #222; color: #eee; }
+      .container { max-width: 600px; margin: 0 auto; }
+      .control-panel { background: #333; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+      input, button { padding: 8px; margin: 5px; }
+      #status { margin-bottom: 10px; font-weight: bold; color: #8f8; }
+      #peer-list { margin-top: 20px; border-top: 1px solid #444; padding-top: 10px; }
+    </style>
+    <script type="module" crossorigin src="/assets/index-DnbiXejZ.js"></script>
+  </head>
+  <body>
+    <div class="container">
+      <h1>WebRTC Voice Demo</h1>
+      <div id="status">Status: Disconnected</div>
+      
+      <div class="control-panel">
+        <div>
+          <button id="btn-connect">Connect to Server</button>
+        </div>
+        <hr style="border-color: #444;">
+        <div>
+          <input type="text" id="input-room" placeholder="Room ID" value="test-room">
+          <input type="text" id="input-name" placeholder="Display Name" value="User1">
+          <button id="btn-join" disabled>Join Channel</button>
+        </div>
+        <div>
+           <button id="btn-mute" disabled>Mute</button>
+        </div>
+      </div>
+
+      <div id="peer-list"></div>
+      <div id="audio-container"></div>
+    </div>
+  </body>
+</html>

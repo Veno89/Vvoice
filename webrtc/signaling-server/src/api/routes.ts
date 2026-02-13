@@ -5,8 +5,23 @@ import { signDevToken } from '../security/auth.js';
 
 const devAuthSchema = z.object({ username: z.string().min(1).max(64) });
 
+const loginSchema = z.object({
+  username: z.string().min(1).max(50)
+});
+
 export async function registerApiRoutes(app: FastifyInstance, cfg: ServerConfig): Promise<void> {
-  app.get('/health', async () => ({ ok: true, service: 'webrtc-signaling-server' }));
+  app.get('/health', async () => {
+    return { status: 'ok', timestamp: new Date().toISOString() };
+  });
+
+  app.post('/api/auth/login', async (request, reply) => {
+    const body = loginSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({ error: 'Invalid username' });
+    }
+    const token = signDevToken(cfg.jwtSecret, body.data.username);
+    return { token };
+  });
 
   app.post('/auth/dev', async (request, reply) => {
     const parsed = devAuthSchema.safeParse(request.body);

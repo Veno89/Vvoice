@@ -10,7 +10,7 @@ export interface ServerConfig {
 }
 
 export const config: ServerConfig = {
-  port: Number(process.env.PORT ?? 8080),
+  port: Number(process.env.PORT ?? 3000),
   host: process.env.HOST ?? '0.0.0.0',
   jwtSecret: process.env.WEBRTC_DEV_JWT_SECRET ?? 'vvoice-webrtc-dev-secret-change-me',
   protocolVersion: '1.0.0',

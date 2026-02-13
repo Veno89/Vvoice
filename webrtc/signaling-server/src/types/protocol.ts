@@ -57,6 +57,12 @@ export const pingSchema = baseSchema.extend({
   type: z.literal('ping')
 });
 
+export const clientChatMessageSchema = baseSchema.extend({
+  type: z.literal('chat_message'),
+  roomId: z.string().min(1).max(64),
+  content: z.string().min(1).max(2000)
+});
+
 export const clientMessageSchema = z.discriminatedUnion('type', [
   clientHelloSchema,
   joinRoomSchema,
@@ -65,7 +71,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   answerSchema,
   iceCandidateSchema,
   setMuteSchema,
-  pingSchema
+  pingSchema,
+  clientChatMessageSchema
 ]);
 
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
@@ -82,6 +89,7 @@ export type ServerMessage =
   | { type: 'participant_joined'; roomId: string; peerId: string; displayName: string; muted: boolean }
   | { type: 'participant_left'; roomId: string; peerId: string }
   | { type: 'participant_muted'; roomId: string; peerId: string; muted: boolean }
+  | { type: 'chat_message'; roomId: string; senderId: string; displayName: string; content: string; timestamp: number }
   | { type: 'webrtc_offer'; fromPeerId: string; sdp: string }
   | { type: 'webrtc_answer'; fromPeerId: string; sdp: string }
   | { type: 'webrtc_ice_candidate'; fromPeerId: string; candidate: string }

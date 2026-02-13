@@ -14,7 +14,7 @@ export function signDevToken(jwtSecret: string, username: string): string {
 
 export function verifyToken(jwtSecret: string, token?: string): AuthClaims {
   if (!token) {
-    return { sub: 'anonymous', name: 'Anonymous' };
+    throw new Error('missing_token');
   }
 
   const decoded = jwt.verify(token, jwtSecret);

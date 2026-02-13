@@ -1,59 +1,53 @@
 # Vvoice
 
-A modern, high-performance voice chat application built with Rust (Backend) and Tauri/React (Frontend).
+A modern, high-performance voice chat application built with **WebRTC** (Voice) and **Rust/Tauri** (Desktop Client).
 
 ## Features
 
--   **Low Latency Voice:** Uses UDP for real-time voice transmission (Mumble Protocol compatible).
--   **Secure:** TLS encryption for control channel.
--   **Audio Engine:** High-quality Opus codec, jitter buffer, and VAD (Voice Activity Detection).
+-   **High Quality Voice:** WebRTC-based audio with Opus codec, echo cancellation, and noise suppression.
+-   **Low Latency:** Direct peer-to-peer or server-relayed streams via SFU/Signaling.
+-   **Secure:** WSS (WebSocket Secure) and DTLS-SRTP encryption.
 -   **Cross-Platform:** Runs on Windows, Linux, and macOS.
--   **Scalable Backend:** Rust `tokio` based server handling thousands of concurrent connections.
+-   **Modern Stack:** React + TypeScript Frontend, Node.js Signaling Server, lightweight Rust Host.
 
-## Project Structure (A+ Architecture)
+## Project Structure
 
-This project follows SOLID principles and Clean Architecture:
-
--   **`backend/`**: The Vvoice Server (Rust).
-    -   `codec.rs`: Shared protobuf codec logic.
-    -   `handler.rs`: Connection lifecycle management.
-    -   `voice_service.rs` / `chat_service.rs`: Domain logic.
 -   **`client/`**: The Vvoice Desktop Client.
-    -   **Frontend (`src/`)**: React + TypeScript + Zustand (State Management).
-    -   **Backend (`src-tauri/`)**: Rust core.
-        -   `audio.rs`: Dedicated audio engine (CPAL + Opus) running on separate threads.
-        -   `mumble.rs`: Network protocol handler.
-        -   `lib.rs`: Tauri command interface.
+    -   **Frontend (`src/`)**: React + TypeScript + Zustand + WebRTC logic.
+    -   **Backend (`src-tauri/`)**: Lightweight Rust shell for OS integration (Global PTT, Tray, etc).
+-   **`webrtc/signaling-server/`**: The Node.js Signaling Server.
+    -   Handles WebSocket connections, room management, and signaling exchange.
 
 ## Getting Started
 
 ### Prerequisites
 
--   **Rust:** Latest stable toolchain (`rustup`).
 -   **Node.js:** v18+ and `npm`.
--   **PostgreSQL:** Database server running locally.
+-   **Rust:** Latest stable toolchain (`rustup`) - for building Desktop client.
 
-### 1. Backend Server Setup
+### 1. Signaling Server Setup
 
 ```bash
-cd backend
-# Create .env with DATABASE_URL=postgres://user:password@localhost/vvoice_db
-cargo run
+cd webrtc/signaling-server
+npm install
+npm run dev
+# Server runs on localhost:3000
 ```
 
 ### 2. Client Setup
 
+**Browser Mode (Recommended for dev):**
 ```bash
 cd client
 npm install
-npm run tauri dev
+npm run dev
+# Open http://localhost:1420
 ```
 
-### 3. Build for Release
-
+**Desktop Mode:**
 ```bash
 cd client
-npm run tauri build
+npm run tauri dev
 ```
 
 ## License

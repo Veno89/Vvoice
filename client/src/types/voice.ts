@@ -1,22 +1,28 @@
-export type Channel = {
+export interface Channel {
   channel_id: number;
-  name?: string;
-};
+  name: string;
+  parent_id: number;
+  description: string;
+  temporary: boolean;
+  position: number;
+  links: number[];
+}
 
-export type ActiveUser = {
+export interface ActiveUser {
   session: number;
-  name?: string;
-  channel_id?: number;
-  isSpeaking?: boolean;
-  self_mute?: boolean;
-  self_deaf?: boolean;
-  avatar_url?: string;
-  comment?: string;
-  [key: string]: unknown;
-};
+  peerId: string;
+  name: string;
+  channel_id: number;
+  isMuted: boolean;
+  isDeafened: boolean;
+  isSpeaking: boolean;
+  avatar_url: string | null;
+}
 
-export type ChatMessage = {
-  actor?: number;
+export interface ChatMessage {
+  session: number;
+  channel_id: number[];
+  actor: number; // Keep for compatibility with session ID
   message: string;
-  timestamp?: number;
-};
+  timestamp: number;
+}

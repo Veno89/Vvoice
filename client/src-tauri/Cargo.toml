@@ -22,22 +22,8 @@ device_query = "2.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1.37", features = ["full"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-tokio-rustls = "0.26"
-rustls = "0.23"
-rustls-native-certs = "0.7"
-bytes = "1.5"
-futures = "0.3"
 tracing = "0.1"
 tracing-subscriber = "0.3"
-anyhow = "1.0"
-prost = "0.12"
-prost-types = "0.12"
-cpal = "0.15"
-opus = "0.3"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-prost-build = "0.12"
-protoc-bin-vendored = "3"
-

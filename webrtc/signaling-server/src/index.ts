@@ -7,6 +7,7 @@ import { log } from './utils/log.js';
 
 async function main(): Promise<void> {
   const app = Fastify({ logger: log });
+  // const app = Fastify();
 
   app.addHook('onRequest', applyHttpRateLimit);
 
@@ -14,10 +15,10 @@ async function main(): Promise<void> {
   registerWebSocketServer(app, config);
 
   await app.listen({ port: config.port, host: config.host });
-  log.info({ port: config.port }, 'webrtc signaling server started');
+  console.log(`Signaling server running at http://${config.host}:${config.port}`);
 }
 
 main().catch((error) => {
-  log.error({ err: error }, 'failed to start signaling server');
+  console.error('Failed to start signaling server:', error);
   process.exit(1);
 });
