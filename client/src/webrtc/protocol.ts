@@ -15,7 +15,10 @@ export type MessageType =
     | 'server_notice'
     | 'pong'
     | 'ping'
-    | 'chat_message';
+    | 'chat_message'
+    | 'channel_list'
+    | 'create_channel'
+    | 'delete_channel';
 
 export interface BaseMessage {
     type: MessageType;
@@ -78,6 +81,13 @@ export interface RoomJoined extends BaseMessage {
         peerId: string;
         displayName: string;
         muted: boolean;
+        avatarUrl?: string;
+        bio?: string;
+    }>;
+    iceServers: Array<{
+        urls: string;
+        username?: string;
+        credential?: string;
     }>;
 }
 
@@ -86,6 +96,8 @@ export interface ParticipantJoined extends BaseMessage {
     peerId: string;
     displayName: string;
     muted?: boolean;
+    avatarUrl?: string;
+    bio?: string;
 }
 
 export interface ParticipantLeft extends BaseMessage {
@@ -148,6 +160,27 @@ export interface ServerChatMessage extends BaseMessage {
     timestamp: number;
 }
 
+export interface ChannelList extends BaseMessage {
+    type: 'channel_list';
+    channels: Array<{
+        id: string;
+        name: string;
+        description: string;
+        position: number;
+    }>;
+}
+
+export interface CreateChannel extends BaseMessage {
+    type: 'create_channel';
+    name: string;
+    description?: string;
+}
+
+export interface DeleteChannel extends BaseMessage {
+    type: 'delete_channel';
+    channelId: string;
+}
+
 // Union types
 export type ClientMessage =
     | ClientHello
@@ -158,7 +191,9 @@ export type ClientMessage =
     | ClientWebRTCIceCandidate
     | SetMute
     | Ping
-    | ClientChatMessage;
+    | ClientChatMessage
+    | CreateChannel
+    | DeleteChannel;
 
 export type ServerMessage =
     | RoomJoined
@@ -171,4 +206,5 @@ export type ServerMessage =
     | SignalError
     | ServerNotice
     | Pong
-    | ServerChatMessage;
+    | ServerChatMessage
+    | ChannelList;

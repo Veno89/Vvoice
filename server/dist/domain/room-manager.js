@@ -8,7 +8,7 @@ export class RoomManager {
         this.maxParticipantsPerRoom = maxParticipantsPerRoom;
         this.maxRoomsPerConnection = maxRoomsPerConnection;
     }
-    joinRoom(connectionId, userId, displayName, roomId) {
+    joinRoom(connectionId, userId, displayName, roomId, profile = {}) {
         const joinedRooms = this.byConnection.get(connectionId) ?? new Set();
         if (!joinedRooms.has(roomId) && joinedRooms.size >= this.maxRoomsPerConnection) {
             throw new Error('max_rooms_per_connection');
@@ -22,7 +22,16 @@ export class RoomManager {
             throw new Error('room_full');
         }
         const peerId = randomUUID();
-        const self = { peerId, userId, displayName, muted: false, connectionId };
+        const self = {
+            peerId,
+            userId,
+            displayName,
+            muted: false,
+            connectionId,
+            avatarUrl: profile.avatarUrl,
+            bio: profile.bio,
+            role: profile.role
+        };
         room.participants.set(peerId, self);
         joinedRooms.add(roomId);
         this.byConnection.set(connectionId, joinedRooms);
@@ -98,7 +107,10 @@ export class RoomManager {
             peerId: participant.peerId,
             userId: participant.userId,
             displayName: participant.displayName,
-            muted: participant.muted
+            muted: participant.muted,
+            avatarUrl: participant.avatarUrl,
+            bio: participant.bio,
+            role: participant.role
         };
     }
 }

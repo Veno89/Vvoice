@@ -45,6 +45,20 @@ export const setMuteSchema = baseSchema.extend({
 export const pingSchema = baseSchema.extend({
     type: z.literal('ping')
 });
+export const clientChatMessageSchema = baseSchema.extend({
+    type: z.literal('chat_message'),
+    roomId: z.string().min(1).max(64),
+    content: z.string().min(1).max(2000)
+});
+export const createChannelSchema = baseSchema.extend({
+    type: z.literal('create_channel'),
+    name: z.string().min(1).max(50),
+    description: z.string().max(200).optional()
+});
+export const deleteChannelSchema = baseSchema.extend({
+    type: z.literal('delete_channel'),
+    channelId: z.string().min(1).max(64)
+});
 export const clientMessageSchema = z.discriminatedUnion('type', [
     clientHelloSchema,
     joinRoomSchema,
@@ -53,5 +67,8 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     answerSchema,
     iceCandidateSchema,
     setMuteSchema,
-    pingSchema
+    pingSchema,
+    clientChatMessageSchema,
+    createChannelSchema,
+    deleteChannelSchema
 ]);

@@ -17,6 +17,8 @@ export interface ActiveUser {
   isDeafened: boolean;
   isSpeaking: boolean;
   avatar_url: string | null;
+  bio?: string;
+  role?: string;
 }
 
 export interface ChatMessage {

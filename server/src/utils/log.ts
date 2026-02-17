@@ -5,13 +5,13 @@ const redactPaths = ['msg.sdp', 'msg.candidate', 'payload.sdp', 'payload.candida
 export const log = pino({
   level: process.env.LOG_LEVEL ?? 'info',
   redact: redactPaths,
-  transport: process.env.NODE_ENV === 'development'
-    ? {
-      target: 'pino-pretty',
-      options: {
-        translateTime: 'HH:MM:ss Z',
-        ignore: 'pid,hostname',
-      },
-    }
-    : undefined,
+  // transport: process.env.NODE_ENV === 'development'
+  //   ? {
+  //     target: 'pino-pretty',
+  //     options: {
+  //       translateTime: 'HH:MM:ss Z',
+  //       ignore: 'pid,hostname',
+  //     },
+  //   }
+  //   : undefined,
 });

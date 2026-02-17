@@ -6,15 +6,24 @@ interface PeerConnection {
     peerId: string;
 }
 
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+];
+
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+    sampleRate: 48000,
+};
+
 export class WebRTCManager {
     private signaling: SignalingClient;
     private localStream: MediaStream | null = null;
     private peers: Map<string, PeerConnection> = new Map();
-    // TODO: Use COTURN config
-    private iceServers: RTCIceServer[] = [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-    ];
+    private iceServers: RTCIceServer[] = DEFAULT_ICE_SERVERS;
 
     public onRemoteStream?: (peerId: string, stream: MediaStream) => void;
     public onPeerLeft?: (peerId: string) => void;
@@ -22,6 +31,13 @@ export class WebRTCManager {
     constructor(signaling: SignalingClient) {
         this.signaling = signaling;
         this.setupDeviceListeners();
+    }
+
+    /**
+     * Update ICE servers at runtime (called when server sends TURN credentials).
+     */
+    public setIceServers(servers: RTCIceServer[]): void {
+        this.iceServers = servers.length > 0 ? servers : DEFAULT_ICE_SERVERS;
     }
 
     private setupDeviceListeners() {
@@ -41,13 +57,7 @@ export class WebRTCManager {
         try {
             // Re-acquire microphone (system default or sticky ID)
             const newStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    channelCount: 1,
-                    sampleRate: 48000
-                },
+                audio: AUDIO_CONSTRAINTS,
                 video: false
             });
 
@@ -81,13 +91,7 @@ export class WebRTCManager {
         if (this.localStream) return this.localStream;
         try {
             this.localStream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                    channelCount: 1,
-                    sampleRate: 48000
-                },
+                audio: AUDIO_CONSTRAINTS,
                 video: false
             });
             return this.localStream;
@@ -118,15 +122,27 @@ export class WebRTCManager {
                 break;
 
             case 'webrtc_offer':
-                await this.handleOffer(msg.fromPeerId, JSON.parse(msg.sdp));
+                try {
+                    await this.handleOffer(msg.fromPeerId, JSON.parse(msg.sdp));
+                } catch (e) {
+                    console.error('[RTC] Failed to process offer from', msg.fromPeerId, e);
+                }
                 break;
 
             case 'webrtc_answer':
-                await this.handleAnswer(msg.fromPeerId, JSON.parse(msg.sdp));
+                try {
+                    await this.handleAnswer(msg.fromPeerId, JSON.parse(msg.sdp));
+                } catch (e) {
+                    console.error('[RTC] Failed to process answer from', msg.fromPeerId, e);
+                }
                 break;
 
             case 'webrtc_ice_candidate':
-                await this.handleCandidate(msg.fromPeerId, JSON.parse(msg.candidate));
+                try {
+                    await this.handleCandidate(msg.fromPeerId, JSON.parse(msg.candidate));
+                } catch (e) {
+                    console.error('[RTC] Failed to process ICE candidate from', msg.fromPeerId, e);
+                }
                 break;
         }
     }
@@ -241,6 +257,63 @@ export class WebRTCManager {
                 track.enabled = !muted;
             });
         }
+    }
+
+    public setDeaf(deafened: boolean) {
+        this.peers.forEach(peer => {
+            peer.pc.getReceivers().forEach(receiver => {
+                if (receiver.track.kind === 'audio') {
+                    receiver.track.enabled = !deafened;
+                }
+            });
+        });
+    }
+
+    public async startEchoTest(audioElement: HTMLAudioElement) {
+        try {
+            const stream = await this.getLocalAudio();
+            audioElement.srcObject = stream;
+            audioElement.muted = false; // Ensure it's not muted locally
+            await audioElement.play();
+        } catch (e) {
+            console.error("Failed to start echo test:", e);
+        }
+    }
+
+    public stopEchoTest(audioElement: HTMLAudioElement) {
+        audioElement.srcObject = null;
+    }
+
+    public setupAudioAnalysis(callback: (volume: number) => void): () => void {
+        if (!this.localStream) return () => { };
+
+        const audioContext = new AudioContext();
+        const source = audioContext.createMediaStreamSource(this.localStream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        let animationId: number;
+
+        const update = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const sum = dataArray.reduce((bs, b) => bs + b, 0);
+            const average = sum / dataArray.length;
+            // Normalize somewhat (0-255 -> 0-100)
+            const normalized = Math.min(100, (average / 128) * 100);
+            callback(normalized);
+            animationId = requestAnimationFrame(update);
+        };
+
+        update();
+
+        return () => {
+            cancelAnimationFrame(animationId);
+            source.disconnect();
+            analyser.disconnect();
+            audioContext.close();
+        };
     }
 
     public cleanup() {

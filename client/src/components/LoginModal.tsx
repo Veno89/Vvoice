@@ -5,16 +5,18 @@ import { useSettingsStore } from '../store/settingsStore';
 
 interface LoginModalProps {
     onConnect: (username: string, password: string, serverAddress: string) => void;
+    onRegister: (username: string, password: string, serverAddress: string) => void;
     isConnecting: boolean;
 }
 
-export function LoginModal({ onConnect, isConnecting }: LoginModalProps) {
+export function LoginModal({ onConnect, onRegister, isConnecting }: LoginModalProps) {
     const { savedUsername, savedPassword, savedServerAddress, rememberMe, setCredentials } = useSettingsStore();
 
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [serverAddress, setServerAddress] = useState('127.0.0.1');
     const [remember, setRemember] = useState(false);
+    const [isRegistering, setIsRegistering] = useState(false);
 
     useEffect(() => {
         if (rememberMe && savedUsername) {
@@ -29,7 +31,11 @@ export function LoginModal({ onConnect, isConnecting }: LoginModalProps) {
         e.preventDefault();
         if (username && password && serverAddress) {
             await setCredentials(username, password, serverAddress, remember);
-            onConnect(username, password, serverAddress);
+            if (isRegistering) {
+                onRegister(username, password, serverAddress);
+            } else {
+                onConnect(username, password, serverAddress);
+            }
         }
     };
 
@@ -42,8 +48,8 @@ export function LoginModal({ onConnect, isConnecting }: LoginModalProps) {
         >
             <div className="login-header">
                 <Server size={32} className="login-icon" />
-                <h2>Connect to Server</h2>
-                <p>Enter your credentials to join.</p>
+                <h2>{isRegistering ? 'Create Account' : 'Connect to Server'}</h2>
+                <p>{isRegistering ? 'Register to join the voice server.' : 'Enter your credentials to join.'}</p>
             </div>
 
             <form onSubmit={handleSubmit} className="login-form">
@@ -107,9 +113,26 @@ export function LoginModal({ onConnect, isConnecting }: LoginModalProps) {
                     className={`btn-large ${isConnecting ? 'loading' : ''}`}
                     disabled={!username || !password || !serverAddress || isConnecting}
                 >
-                    {isConnecting ? 'Connecting...' : 'Connect'}
+                    {isConnecting ? 'Please wait...' : (isRegistering ? 'Register' : 'Connect')}
                     {!isConnecting && <Radio size={18} style={{ marginLeft: 8 }} />}
                 </button>
+
+                <div style={{ marginTop: 16, textAlign: 'center' }}>
+                    <button
+                        type="button"
+                        onClick={() => setIsRegistering(!isRegistering)}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--primary)',
+                            cursor: 'pointer',
+                            textDecoration: 'underline',
+                            fontSize: '0.9rem'
+                        }}
+                    >
+                        {isRegistering ? 'Already have an account? Login' : 'New user? Create an account'}
+                    </button>
+                </div>
             </form>
         </motion.div>
     );

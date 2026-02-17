@@ -1,31 +1,42 @@
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
-import { RoomManager } from '../domain/room-manager.js';
-import { verifyToken } from '../security/auth.js';
 import { SlidingWindowRateLimiter } from '../security/rate-limiter.js';
-import { clientMessageSchema, protocolVersion } from '../types/protocol.js';
+import { clientMessageSchema } from '../types/protocol.js';
 import { log } from '../utils/log.js';
-export function registerWebSocketServer(app, cfg) {
-    const roomManager = new RoomManager(cfg.maxRoomParticipants, cfg.maxRoomsPerConnection);
+import { send, sendError, broadcastRoom } from './broadcast.js';
+import { handleClientMessage } from './message-handler.js';
+export function registerWebSocketServer(app, cfg, roomManager, channelManager, connections, byPeerId) {
     const wss = new WebSocketServer({ noServer: true });
-    const connections = new Map();
-    const byPeerId = new Map();
     const msgRateLimiter = new SlidingWindowRateLimiter(cfg.wsMessageBurst, cfg.wsMessageWindowMs);
+    const ipConnections = new Map();
+    const MAX_CONNECTIONS_PER_IP = 5;
     app.server.on('upgrade', (request, socket, head) => {
         if (request.url !== '/ws') {
             socket.destroy();
             return;
         }
+        const ip = request.headers['x-forwarded-for']?.split(',')[0]?.trim() || request.socket.remoteAddress || 'unknown';
+        const currentCount = ipConnections.get(ip) ?? 0;
+        if (currentCount >= MAX_CONNECTIONS_PER_IP) {
+            log.warn({ ip, count: currentCount }, 'ws_ip_limit_exceeded');
+            socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+            socket.destroy();
+            return;
+        }
+        ipConnections.set(ip, currentCount + 1);
         wss.handleUpgrade(request, socket, head, (ws) => {
+            ws.__ip = ip;
             wss.emit('connection', ws);
         });
     });
     wss.on('connection', (ws) => {
         const connectionId = randomUUID();
+        const ip = ws.__ip ?? 'unknown';
         const state = {
             connectionId,
             userId: 'anonymous',
             displayName: 'Anonymous',
+            role: 'member',
             ws,
             authenticated: false,
             peerIds: new Set()
@@ -38,10 +49,9 @@ export function registerWebSocketServer(app, cfg) {
                 ws.close(1008, 'rate_limited');
                 return;
             }
-            const text = raw.toString();
             let data;
             try {
-                data = JSON.parse(text);
+                data = JSON.parse(raw.toString());
             }
             catch {
                 sendError(ws, 'invalid_json', 'Invalid JSON payload');
@@ -52,109 +62,13 @@ export function registerWebSocketServer(app, cfg) {
                 sendError(ws, 'invalid_message', 'Message does not conform to protocol');
                 return;
             }
-            const msg = parsed.data;
-            if (!state.authenticated && msg.type !== 'client_hello') {
-                sendError(ws, 'unauthorized', 'Send client_hello first');
-                return;
-            }
-            try {
-                switch (msg.type) {
-                    case 'client_hello': {
-                        if (msg.protocolVersion !== protocolVersion) {
-                            sendError(ws, 'protocol_mismatch', `Expected protocol ${protocolVersion}`);
-                            return;
-                        }
-                        const claims = verifyToken(cfg.jwtSecret, msg.authToken);
-                        state.userId = claims.sub;
-                        state.displayName = claims.name;
-                        state.authenticated = true;
-                        send(ws, { type: 'server_notice', message: `Authenticated as ${state.displayName}` });
-                        break;
-                    }
-                    case 'join_room': {
-                        const joined = roomManager.joinRoom(connectionId, state.userId, msg.displayName, msg.roomId);
-                        state.peerIds.add(joined.self.peerId);
-                        byPeerId.set(joined.self.peerId, state);
-                        send(ws, {
-                            type: 'room_joined',
-                            roomId: msg.roomId,
-                            selfPeerId: joined.self.peerId,
-                            participants: joined.participants
-                        });
-                        broadcastRoom(roomManager, msg.roomId, {
-                            type: 'participant_joined',
-                            roomId: msg.roomId,
-                            peerId: joined.self.peerId,
-                            displayName: joined.self.displayName,
-                            muted: joined.self.muted
-                        }, joined.self.peerId);
-                        break;
-                    }
-                    case 'leave_room': {
-                        const removed = roomManager.leaveRoom(connectionId, msg.roomId);
-                        for (const participant of removed) {
-                            state.peerIds.delete(participant.peerId);
-                            byPeerId.delete(participant.peerId);
-                            broadcastRoom(roomManager, msg.roomId, {
-                                type: 'participant_left',
-                                roomId: msg.roomId,
-                                peerId: participant.peerId
-                            });
-                        }
-                        break;
-                    }
-                    case 'set_mute': {
-                        const participant = roomManager.setMute(connectionId, msg.roomId, msg.muted);
-                        broadcastRoom(roomManager, msg.roomId, {
-                            type: 'participant_muted',
-                            roomId: msg.roomId,
-                            peerId: participant.peerId,
-                            muted: participant.muted
-                        });
-                        break;
-                    }
-                    case 'webrtc_offer':
-                    case 'webrtc_answer':
-                    case 'webrtc_ice_candidate': {
-                        const target = byPeerId.get(msg.toPeerId);
-                        if (!target) {
-                            sendError(ws, 'peer_not_found', 'Target peer is not connected');
-                            return;
-                        }
-                        const senderPeerId = [...state.peerIds][0];
-                        if (!senderPeerId) {
-                            sendError(ws, 'not_in_room', 'Join a room before signaling');
-                            return;
-                        }
-                        if (msg.type === 'webrtc_offer') {
-                            send(target.ws, { type: 'webrtc_offer', fromPeerId: senderPeerId, sdp: msg.sdp });
-                        }
-                        else if (msg.type === 'webrtc_answer') {
-                            send(target.ws, { type: 'webrtc_answer', fromPeerId: senderPeerId, sdp: msg.sdp });
-                        }
-                        else {
-                            send(target.ws, { type: 'webrtc_ice_candidate', fromPeerId: senderPeerId, candidate: msg.candidate });
-                        }
-                        break;
-                    }
-                    case 'ping': {
-                        send(ws, { type: 'pong', ts: Date.now() });
-                        break;
-                    }
-                    default:
-                        sendError(ws, 'unsupported_message', 'Unsupported message type');
-                }
-            }
-            catch (error) {
-                const code = error instanceof Error ? error.message : 'internal_error';
-                sendError(ws, code, 'Request failed');
-            }
+            handleClientMessage(parsed.data, state, cfg, roomManager, channelManager, connections, byPeerId);
         });
         ws.on('close', () => {
             const departures = roomManager.leaveAll(connectionId);
             for (const event of departures) {
                 byPeerId.delete(event.participant.peerId);
-                broadcastRoom(roomManager, event.roomId, {
+                broadcastRoom(roomManager, connections, event.roomId, {
                     type: 'participant_left',
                     roomId: event.roomId,
                     peerId: event.participant.peerId
@@ -162,34 +76,14 @@ export function registerWebSocketServer(app, cfg) {
             }
             connections.delete(connectionId);
             msgRateLimiter.clear(connectionId);
+            // Decrement IP connection count
+            const count = ipConnections.get(ip) ?? 1;
+            if (count <= 1) {
+                ipConnections.delete(ip);
+            }
+            else {
+                ipConnections.set(ip, count - 1);
+            }
         });
     });
-    function broadcastRoom(roomMgr, roomId, message, excludePeerId) {
-        const participants = roomMgr.getRoomParticipants(roomId);
-        for (const participant of participants) {
-            if (excludePeerId && participant.peerId === excludePeerId)
-                continue;
-            const connection = connections.get(participant.connectionId);
-            if (connection) {
-                send(connection.ws, message);
-            }
-        }
-    }
-}
-function send(ws, message) {
-    const safeMessage = sanitizeForLogs(message);
-    log.debug({ msg: safeMessage }, 'ws_send');
-    ws.send(JSON.stringify(message));
-}
-function sendError(ws, code, message) {
-    send(ws, { type: 'signal_error', code, message });
-}
-function sanitizeForLogs(message) {
-    if (message.type === 'webrtc_offer' || message.type === 'webrtc_answer') {
-        return { ...message, sdp: '[redacted]' };
-    }
-    if (message.type === 'webrtc_ice_candidate') {
-        return { ...message, candidate: '[redacted]' };
-    }
-    return message;
 }

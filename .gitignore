@@ -8,6 +8,9 @@ node_modules/
 # Murmur Data
 murmur/data/
 
+# Database
+server/data/
+
 # OS
 Thumbs.db
 .DS_Store

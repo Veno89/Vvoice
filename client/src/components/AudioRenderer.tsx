@@ -34,6 +34,7 @@ export const AudioRenderer = () => {
             {Array.from(remoteStreams.entries()).map(([peerId, stream]) => (
                 <StreamPlayer key={peerId} peerId={peerId} stream={stream} />
             ))}
+            <audio id="echo-audio" style={{ display: 'none' }} autoPlay playsInline />
         </div>
     );
 };

@@ -6,7 +6,6 @@ import {
     ClientWebRTCOffer,
     ClientWebRTCAnswer,
     ClientWebRTCIceCandidate,
-    SetMute
 } from './protocol';
 
 export class SignalingClient {
@@ -181,6 +180,23 @@ export class SignalingClient {
             type: 'chat_message',
             roomId,
             content
+        });
+    }
+
+    public createChannel(name: string, description?: string) {
+        if (!this.isConnected) return;
+        this.send({
+            type: 'create_channel',
+            name,
+            description
+        });
+    }
+
+    public deleteChannel(channelId: string) {
+        if (!this.isConnected) return;
+        this.send({
+            type: 'delete_channel',
+            channelId
         });
     }
 }

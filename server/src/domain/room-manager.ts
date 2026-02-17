@@ -7,6 +7,9 @@ export interface Participant {
   displayName: string;
   muted: boolean;
   connectionId: string;
+  avatarUrl?: string;
+  bio?: string;
+  role?: string;
 }
 
 export interface Room {
@@ -21,9 +24,9 @@ export class RoomManager {
   constructor(
     private readonly maxParticipantsPerRoom: number,
     private readonly maxRoomsPerConnection: number
-  ) {}
+  ) { }
 
-  joinRoom(connectionId: string, userId: string, displayName: string, roomId: string): { self: Participant; participants: ParticipantView[] } {
+  joinRoom(connectionId: string, userId: string, displayName: string, roomId: string, profile: { avatarUrl?: string; bio?: string; role?: string } = {}): { self: Participant; participants: ParticipantView[] } {
     const joinedRooms = this.byConnection.get(connectionId) ?? new Set<string>();
     if (!joinedRooms.has(roomId) && joinedRooms.size >= this.maxRoomsPerConnection) {
       throw new Error('max_rooms_per_connection');
@@ -40,7 +43,16 @@ export class RoomManager {
     }
 
     const peerId = randomUUID();
-    const self: Participant = { peerId, userId, displayName, muted: false, connectionId };
+    const self: Participant = {
+      peerId,
+      userId,
+      displayName,
+      muted: false,
+      connectionId,
+      avatarUrl: profile.avatarUrl,
+      bio: profile.bio,
+      role: profile.role
+    };
     room.participants.set(peerId, self);
 
     joinedRooms.add(roomId);
@@ -130,7 +142,10 @@ export class RoomManager {
       peerId: participant.peerId,
       userId: participant.userId,
       displayName: participant.displayName,
-      muted: participant.muted
+      muted: participant.muted,
+      avatarUrl: participant.avatarUrl,
+      bio: participant.bio,
+      role: participant.role
     };
   }
 }

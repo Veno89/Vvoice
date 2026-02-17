@@ -12,7 +12,7 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const { inputDevice, vadThreshold: storeVad, setInputDevice, setVadThreshold } = useSettingsStore();
-    const { currentUsername, activeUsers, setProfile } = useVoiceStore();
+    const { currentUsername, activeUsers, setProfile, startAudioAnalysis, toggleEcho, isEchoTesting } = useVoiceStore();
     const currentUser = activeUsers.find(u => u.name === currentUsername);
 
     // Local state for "draft" settings before saving
@@ -22,13 +22,26 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const [avatarUrl, setAvatarUrl] = useState('');
     const [bio, setBio] = useState('');
 
+    // Volume Visualization
+    const [volume, setVolume] = useState(0);
+
+    useEffect(() => {
+        if (isOpen) {
+            // Start analysis
+            const stopAnalysis = startAudioAnalysis((vol) => {
+                setVolume(vol);
+            });
+            return () => stopAnalysis();
+        }
+    }, [isOpen, startAudioAnalysis]);
+
     useEffect(() => {
         if (isOpen) {
             // Sync with store on open
             setSelectedDevice(inputDevice);
             setVadThresholdLocal(storeVad);
             setAvatarUrl(currentUser?.avatar_url || '');
-            setBio(currentUser?.comment || '');
+            setBio(currentUser?.bio || '');
 
             invoke<string[]>('get_input_devices')
                 .then(devs => {
@@ -53,6 +66,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         invoke('set_vad_threshold', { threshold: vadThreshold })
             .catch(() => { });
 
+        if (isEchoTesting) {
+            void toggleEcho(); // Stop echo on close/save
+        }
         onClose();
     };
 
@@ -93,6 +109,27 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         <option key={i} value={d}>{d}</option>
                                     ))}
                                 </select>
+
+                                {/* Volume Meter */}
+                                <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <div style={{ flex: 1, background: 'var(--bg-tertiary)', height: 6, borderRadius: 3, overflow: 'hidden' }}>
+                                        <motion.div
+                                            style={{
+                                                width: `${volume}%`,
+                                                height: '100%',
+                                                background: volume > (vadThreshold * 1000) ? 'var(--positive)' : 'var(--primary)',
+                                                transition: 'width 0.05s ease-out'
+                                            }}
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={() => void toggleEcho()}
+                                        className={`btn-text ${isEchoTesting ? 'active' : ''}`}
+                                        style={{ fontSize: '0.8rem', padding: '4px 8px', background: isEchoTesting ? 'var(--positive)' : 'var(--bg-tertiary)', color: isEchoTesting ? '#fff' : 'var(--text-primary)' }}
+                                    >
+                                        {isEchoTesting ? "Stop Echo" : "Test Mic"}
+                                    </button>
+                                </div>
                             </div>
 
                             {/* VAD Threshold */}
@@ -131,6 +168,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                         className="device-select"
                                         placeholder="https://example.com/avatar.png"
                                     />
+                                    {avatarUrl && (
+                                        <div style={{ marginTop: 8, width: 64, height: 64, borderRadius: '50%', overflow: 'hidden', border: '2px solid var(--primary)' }}>
+                                            <img
+                                                src={avatarUrl}
+                                                alt="Preview"
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                            />
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div>

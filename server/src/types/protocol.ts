@@ -63,6 +63,17 @@ export const clientChatMessageSchema = baseSchema.extend({
   content: z.string().min(1).max(2000)
 });
 
+export const createChannelSchema = baseSchema.extend({
+  type: z.literal('create_channel'),
+  name: z.string().min(1).max(50),
+  description: z.string().max(200).optional()
+});
+
+export const deleteChannelSchema = baseSchema.extend({
+  type: z.literal('delete_channel'),
+  channelId: z.string().min(1).max(64)
+});
+
 export const clientMessageSchema = z.discriminatedUnion('type', [
   clientHelloSchema,
   joinRoomSchema,
@@ -72,7 +83,9 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
   iceCandidateSchema,
   setMuteSchema,
   pingSchema,
-  clientChatMessageSchema
+  clientChatMessageSchema,
+  createChannelSchema,
+  deleteChannelSchema
 ]);
 
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
@@ -82,11 +95,14 @@ export interface ParticipantView {
   userId: string;
   displayName: string;
   muted: boolean;
+  avatarUrl?: string;
+  bio?: string;
+  role?: string;
 }
 
 export type ServerMessage =
-  | { type: 'room_joined'; roomId: string; selfPeerId: string; participants: ParticipantView[] }
-  | { type: 'participant_joined'; roomId: string; peerId: string; displayName: string; muted: boolean }
+  | { type: 'room_joined'; roomId: string; selfPeerId: string; participants: ParticipantView[]; iceServers: { urls: string; username?: string; credential?: string }[] }
+  | { type: 'participant_joined'; roomId: string; peerId: string; displayName: string; muted: boolean; avatarUrl?: string; bio?: string; role?: string }
   | { type: 'participant_left'; roomId: string; peerId: string }
   | { type: 'participant_muted'; roomId: string; peerId: string; muted: boolean }
   | { type: 'chat_message'; roomId: string; senderId: string; displayName: string; content: string; timestamp: number }
@@ -95,4 +111,5 @@ export type ServerMessage =
   | { type: 'webrtc_ice_candidate'; fromPeerId: string; candidate: string }
   | { type: 'pong'; ts: number }
   | { type: 'signal_error'; code: string; message: string }
-  | { type: 'server_notice'; message: string };
+  | { type: 'server_notice'; message: string }
+  | { type: 'channel_list'; channels: { id: string; name: string; description: string; position: number }[] };

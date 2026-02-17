@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0] - 2026-02-17
+
+### Added
+- **Administration:**
+    - New Role-Based Access Control (RBAC): Users are now 'member' or 'admin'.
+    - Admin API endpoints: `POST /api/admin/kick` and `POST /api/admin/ban`.
+    - Persistent Bans: Banned users are flagged in the database and blocked from logging in.
+- **Chat Persistence:**
+    - Chat history is now saved to the SQLite database.
+    - Users receive the last 50 messages upon joining a room.
+- **DevOps:**
+    - Docker support: Added multi-stage `Dockerfile` and `docker-compose.yml`.
+    - Environment Configuration: Centralized config using `.env` (via `dotenv`).
+
+### Changed
+- **Protocol:** Updated Handshake and `ParticipantView` to include user roles.
+- **UI:** Added Administrator badges to user tooltips.
+
 ## [Unreleased] - 2026-02-13
 
 ### Changed
