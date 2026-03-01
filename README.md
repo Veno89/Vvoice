@@ -27,7 +27,14 @@ A modern, high-performance voice chat application built with **WebRTC** (Voice) 
 -   **Node.js:** v18+ and `npm`.
 -   **Rust:** Latest stable toolchain (`rustup`) - for building Desktop client.
 
-### 1. Signaling Server Setup
+### 1. Signaling + TURN (Docker, cross-network ready)
+
+```bash
+docker compose up -d
+# Starts signaling server (:3000) + coturn (:3478/:5349)
+```
+
+### 2. Signaling Server Setup (Local dev only)
 
 ```bash
 cd server
@@ -36,7 +43,7 @@ npm run dev
 # Server runs on localhost:3000
 ```
 
-### 2. Client Setup
+### 3. Client Setup
 
 **Browser Mode (Recommended for dev):**
 ```bash
@@ -50,6 +57,22 @@ npm run dev
 ```bash
 cd client
 npm run tauri dev
+```
+
+## Internet / Cross-Network Setup
+
+If users are connecting from different networks (not the same LAN), follow:
+
+- `docs/remote-connectivity-checklist.md`
+
+This covers public server hosting, port forwarding/firewalls, TURN/coturn, and HTTPS/WSS requirements.
+
+You can also run an automated readiness check:
+
+```bash
+cd server
+npm install
+npm run check:remote
 ```
 
 ## License

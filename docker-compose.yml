@@ -12,6 +12,27 @@ services:
       - HOST=0.0.0.0
       - NODE_ENV=production
       - DB_PATH=data/vvoice.db
-      - JWT_SECRET=change-me-in-production
       - WEBRTC_DEV_JWT_SECRET=change-me-in-production
+      - CORS_ORIGINS=*
+      # TURN wiring for cross-network voice (must match coturn secret)
+      - TURN_HOST=coturn
+      - TURN_PORT=3478
+      - TURN_SECRET=dev-turn-secret-change-me
+      - TURN_TTL=86400
+    restart: unless-stopped
+    depends_on:
+      - coturn
+
+  coturn:
+    image: coturn/coturn:4.6.2
+    container_name: vvoice-coturn
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      - "49160-49200:49160-49200/udp"
+    volumes:
+      - ./server/infra/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
     restart: unless-stopped

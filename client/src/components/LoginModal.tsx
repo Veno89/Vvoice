@@ -14,7 +14,7 @@ export function LoginModal({ onConnect, onRegister, isConnecting }: LoginModalPr
 
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [serverAddress, setServerAddress] = useState('127.0.0.1');
+    const [serverAddress, setServerAddress] = useState('localhost:3000');
     const [remember, setRemember] = useState(false);
     const [isRegistering, setIsRegistering] = useState(false);
 
@@ -22,7 +22,7 @@ export function LoginModal({ onConnect, onRegister, isConnecting }: LoginModalPr
         if (rememberMe && savedUsername) {
             setUsername(savedUsername);
             setPassword(savedPassword || '');
-            setServerAddress(savedServerAddress || '127.0.0.1');
+            setServerAddress(savedServerAddress || 'localhost:3000');
             setRemember(true);
         }
     }, [rememberMe, savedUsername, savedPassword, savedServerAddress]);
