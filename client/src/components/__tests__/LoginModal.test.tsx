@@ -20,7 +20,7 @@ describe('LoginModal', () => {
         expect(screen.getByText('Connect to Server')).toBeInTheDocument();
         expect(screen.getByPlaceholderText('Username')).toBeInTheDocument();
         expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
-        expect(screen.getByPlaceholderText('Server Address')).toHaveValue('127.0.0.1'); // Default
+        expect(screen.getByPlaceholderText('Server Address')).toHaveValue('localhost:3000'); // Default
     });
 
     it('validates input before submit', async () => {
@@ -39,7 +39,7 @@ describe('LoginModal', () => {
         expect(submitBtn).not.toBeDisabled();
 
         fireEvent.click(submitBtn);
-        expect(onConnect).toHaveBeenCalledWith('Alice', 'secret', '127.0.0.1');
+        expect(onConnect).toHaveBeenCalledWith('Alice', 'secret', 'localhost:3000');
     });
 
     it('shows loading state', () => {
