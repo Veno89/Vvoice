@@ -105,6 +105,41 @@ describe('WebSocket Integration', () => {
         expect(receivedOffer.sdp).toBe('mock-sdp-content');
     });
 
+
+    it('uses the room-specific sender peer when signaling from multi-room users', async () => {
+        const wsAlice = await createClient(server.makeToken('alice'));
+        await waitForMessage(wsAlice, 'server_notice');
+
+        const wsBob = await createClient(server.makeToken('bob'));
+        await waitForMessage(wsBob, 'server_notice');
+
+        const wsCharlie = await createClient(server.makeToken('charlie'));
+        await waitForMessage(wsCharlie, 'server_notice');
+
+        wsAlice.send(JSON.stringify({ type: 'join_room', roomId: 'room-a', displayName: 'Alice' }));
+        const aliceRoomA = await waitForMessage(wsAlice, 'room_joined');
+
+        wsAlice.send(JSON.stringify({ type: 'join_room', roomId: 'room-b', displayName: 'Alice' }));
+        const aliceRoomB = await waitForMessage(wsAlice, 'room_joined');
+
+        wsBob.send(JSON.stringify({ type: 'join_room', roomId: 'room-a', displayName: 'Bob' }));
+        await waitForMessage(wsBob, 'room_joined');
+
+        wsCharlie.send(JSON.stringify({ type: 'join_room', roomId: 'room-b', displayName: 'Charlie' }));
+        const charlieRoomB = await waitForMessage(wsCharlie, 'room_joined');
+
+        wsAlice.send(JSON.stringify({
+            type: 'webrtc_offer',
+            toPeerId: charlieRoomB.selfPeerId,
+            sdp: 'room-b-offer'
+        }));
+
+        const offerToCharlie = await waitForMessage(wsCharlie, 'webrtc_offer');
+        expect(offerToCharlie.sdp).toBe('room-b-offer');
+        expect(offerToCharlie.fromPeerId).toBe(aliceRoomB.selfPeerId);
+        expect(offerToCharlie.fromPeerId).not.toBe(aliceRoomA.selfPeerId);
+    });
+
     it('enforces rate limits on broadcast', async () => {
         const token = server.makeToken('spammer');
         const ws = await createClient(token);

@@ -2,6 +2,29 @@ import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
 
+// Mock Tauri APIs used by stores/components in test environment.
+vi.mock('@tauri-apps/api/core', () => ({
+    invoke: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@tauri-apps/plugin-store', () => {
+    const memory = new Map<string, unknown>();
+    return {
+        Store: {
+            load: vi.fn().mockResolvedValue({
+                get: vi.fn(async (key: string) => memory.get(key)),
+                set: vi.fn(async (key: string, value: unknown) => {
+                    memory.set(key, value);
+                }),
+                save: vi.fn(async () => undefined),
+                delete: vi.fn(async (key: string) => {
+                    memory.delete(key);
+                }),
+            }),
+        },
+    };
+});
+
 // Cleanup after each test case (e.g. clearing jsdom)
 afterEach(() => {
     cleanup();
@@ -16,7 +39,10 @@ vi.stubGlobal('ResizeObserver', vi.fn().mockImplementation(function () {
     };
 }));
 
-// Mock WebRTC - RTCPeerConnection
+// Mock WebRTC globals
+vi.stubGlobal('RTCSessionDescription', vi.fn().mockImplementation(function (value) { return value; }));
+vi.stubGlobal('RTCIceCandidate', vi.fn().mockImplementation(function (value) { return value; }));
+
 vi.stubGlobal('RTCPeerConnection', vi.fn().mockImplementation(function () {
     return {
         createOffer: vi.fn().mockResolvedValue({ type: 'offer', sdp: 'mock-sdp' }),
@@ -33,12 +59,12 @@ vi.stubGlobal('RTCPeerConnection', vi.fn().mockImplementation(function () {
         oniceconnectionstatechange: null,
         onicecandidate: null,
         ontrack: null,
-        getSenders: vi.fn().mockReturnValue([]), // Added missing method
+        getSenders: vi.fn().mockReturnValue([]),
+        getReceivers: vi.fn().mockReturnValue([]),
         getTransceivers: vi.fn().mockReturnValue([]),
     };
 }));
 
-// Mock WebRTC - MediaStream
 vi.stubGlobal('MediaStream', vi.fn().mockImplementation(function () {
     return {
         getTracks: vi.fn().mockReturnValue([]),
@@ -51,7 +77,6 @@ vi.stubGlobal('MediaStream', vi.fn().mockImplementation(function () {
     };
 }));
 
-// Mock navigator.mediaDevices
 Object.defineProperty(navigator, 'mediaDevices', {
     value: {
         getUserMedia: vi.fn().mockImplementation(() => Promise.resolve(new MediaStream())),

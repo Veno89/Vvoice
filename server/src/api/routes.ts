@@ -132,7 +132,7 @@ export async function registerApiRoutes(
   });
 
   // Dev-only: passwordless login (auto-creates user)
-  if ((process.env.NODE_ENV ?? 'development') === 'development') {
+  if (cfg.isDevelopment && cfg.allowDevAuth) {
     app.post('/auth/dev', async (request, reply) => {
       const parsed = z.object({ username: z.string().min(1).max(64) }).safeParse(request.body);
       if (!parsed.success) {

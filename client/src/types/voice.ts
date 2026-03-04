@@ -9,7 +9,7 @@ export interface Channel {
 }
 
 export interface ActiveUser {
-  session: number;
+  session?: number;
   peerId: string;
   name: string;
   channel_id: number;
@@ -22,9 +22,10 @@ export interface ActiveUser {
 }
 
 export interface ChatMessage {
-  session: number;
-  channel_id: number[];
-  actor: number; // Keep for compatibility with session ID
+  actorPeerId: string;
+  session?: number;
+  channel_id: number;
+  actor?: number; // legacy compatibility only
   message: string;
   timestamp: number;
 }

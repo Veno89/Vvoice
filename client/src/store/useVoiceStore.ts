@@ -90,6 +90,16 @@ interface VoiceState {
     reset: () => void;
 }
 
+
+function upsertUser(users: ActiveUser[], next: ActiveUser): ActiveUser[] {
+    const idx = users.findIndex(u => u.peerId === next.peerId);
+    if (idx === -1) return [...users, next];
+
+    const updated = [...users];
+    updated[idx] = { ...updated[idx], ...next };
+    return updated;
+}
+
 export const useVoiceStore = create<VoiceState>((set, get) => ({
     // Initial State
     isConnected: false,
@@ -181,31 +191,42 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
                 rtc.handleMessage(msg);
 
                 switch (msg.type) {
-                    case 'room_joined':
-                        set({ currentChannelId: parseInt(msg.roomId) });
+                    case 'room_joined': {
+                        const roomId = parseInt(msg.roomId);
+                        set({ currentChannelId: roomId });
                         // Pass server-provided ICE servers (STUN + TURN) to WebRTC
                         if (msg.iceServers && rtc) {
                             rtc.setIceServers(msg.iceServers as RTCIceServer[]);
                         }
-                        // Replace active users list
-                        const users: ActiveUser[] = msg.participants.map(p => ({
-                            session: hashCode(p.peerId),
+
+                        const selfUser: ActiveUser = {
+                            name: get().currentUsername,
+                            channel_id: roomId,
+                            isMuted: get().isMuted,
+                            isDeafened: get().isDeafened,
+                            isSpeaking: false,
+                            avatar_url: null,
+                            peerId: msg.selfPeerId
+                        };
+
+                        // Replace active users list and include self (server participants excludes self).
+                        const users: ActiveUser[] = msg.participants.reduce((acc, p) => upsertUser(acc, {
                             name: p.displayName,
-                            channel_id: parseInt(msg.roomId),
+                            channel_id: roomId,
                             isMuted: p.muted,
                             isDeafened: false,
                             isSpeaking: false,
                             avatar_url: p.avatarUrl || null,
                             bio: p.bio,
                             peerId: p.peerId
-                        }));
+                        }), [selfUser]);
                         set({ activeUsers: users });
                         break;
+                    }
 
                     case 'participant_joined':
                         set(state => {
                             const newUser: ActiveUser = {
-                                session: hashCode(msg.peerId),
                                 name: msg.displayName,
                                 channel_id: state.currentChannelId || 1,
                                 isMuted: msg.muted || false,
@@ -215,20 +236,20 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
                                 bio: msg.bio,
                                 peerId: msg.peerId
                             };
-                            return { activeUsers: [...state.activeUsers, newUser] };
+                            return { activeUsers: upsertUser(state.activeUsers, newUser) };
                         });
                         break;
 
                     case 'participant_left':
                         set(state => ({
-                            activeUsers: state.activeUsers.filter(u => hashCode(msg.peerId) !== u.session)
+                            activeUsers: state.activeUsers.filter(u => u.peerId !== msg.peerId)
                         }));
                         break;
 
                     case 'participant_muted':
                         set(state => ({
                             activeUsers: state.activeUsers.map(u =>
-                                hashCode(msg.peerId) === u.session ? { ...u, isMuted: msg.muted } : u
+                                u.peerId === msg.peerId ? { ...u, isMuted: msg.muted } : u
                             )
                         }));
                         break;
@@ -236,10 +257,9 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
                     case 'chat_message':
                         set(state => ({
                             messages: [...state.messages, {
-                                actor: hashCode(msg.senderId),
-                                channel_id: [parseInt(msg.roomId)],
+                                actorPeerId: msg.senderId,
+                                channel_id: parseInt(msg.roomId),
                                 message: msg.content,
-                                session: hashCode(msg.senderId),
                                 timestamp: msg.timestamp
                             }]
                         }));
@@ -339,14 +359,26 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
     joinChannel: async (channelId) => {
         try {
-            set({ messages: [] });
-            // WebRTC Join
-            if (signaling && get().isConnected) {
-                // Audio Init
-                await rtc?.getLocalAudio();
-                signaling.joinRoom(channelId.toString(), get().currentUsername);
-                set({ currentChannelId: channelId });
+            const { currentChannelId, currentUsername, isConnected } = get();
+
+            if (!signaling || !isConnected) {
+                return;
             }
+
+            if (currentChannelId === channelId) {
+                return;
+            }
+
+            set({ messages: [] });
+
+            if (currentChannelId !== null) {
+                signaling.leaveRoom(currentChannelId.toString());
+            }
+
+            // Audio Init
+            await rtc?.getLocalAudio();
+            signaling.joinRoom(channelId.toString(), currentUsername);
+            set({ currentChannelId: channelId });
         } catch (e) {
             console.error("Join channel error:", e);
         }
@@ -476,17 +508,6 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         return () => { };
     }
 }));
-
-// Helper to generate a number hash from string (for temporary session ID compatibility)
-function hashCode(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash);
-}
 
 /** Derived selector: current user from active users list. */
 export const useCurrentUser = () =>

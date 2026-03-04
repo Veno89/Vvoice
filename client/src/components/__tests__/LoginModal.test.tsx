@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LoginModal } from '../LoginModal';
 
 // Mock settings store to avoid persistence side effects
@@ -27,7 +27,7 @@ describe('LoginModal', () => {
         const onConnect = vi.fn();
         render(<LoginModal onConnect={onConnect} onRegister={vi.fn()} isConnecting={false} />);
 
-        const submitBtn = screen.getByRole('button', { name: /Connect/i });
+        const submitBtn = screen.getByRole('button', { name: /^Connect$/i });
 
         // Initially disabled (except address has default)
         // Username/Pass empty
@@ -39,12 +39,14 @@ describe('LoginModal', () => {
         expect(submitBtn).not.toBeDisabled();
 
         fireEvent.click(submitBtn);
-        expect(onConnect).toHaveBeenCalledWith('Alice', 'secret', 'localhost:3000');
+        await waitFor(() => {
+            expect(onConnect).toHaveBeenCalledWith('Alice', 'secret', 'localhost:3000');
+        });
     });
 
     it('shows loading state', () => {
         render(<LoginModal onConnect={vi.fn()} onRegister={vi.fn()} isConnecting={true} />);
         expect(screen.getByText('Please wait...')).toBeInTheDocument();
-        expect(screen.getByRole('button')).toBeDisabled();
+        expect(screen.getByRole('button', { name: /Please wait/i })).toBeDisabled();
     });
 });

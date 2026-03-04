@@ -26,9 +26,7 @@ vi.mock('../store/settingsStore');
 
 describe('App Component', () => {
     const mockConnect = vi.fn();
-    const mockDisconnect = vi.fn();
-    const mockToggleMute = vi.fn();
-    const mockToggleDeaf = vi.fn();
+    const mockToggleEcho = vi.fn();
     const mockSetupListeners = vi.fn().mockReturnValue(() => { });
 
     beforeEach(() => {
@@ -49,7 +47,15 @@ describe('App Component', () => {
             channels: [],
             setupListeners: mockSetupListeners,
             loadSettings: vi.fn(),
-            connect: mockConnect
+            connect: mockConnect,
+            register: vi.fn(),
+            sendMessage: vi.fn(),
+            toggleEcho: mockToggleEcho,
+            clearConnectionError: vi.fn(),
+            connectionError: null,
+            isReconnecting: false,
+            currentUsername: 'Alice',
+            messages: []
         });
 
         render(<App />);
@@ -66,54 +72,65 @@ describe('App Component', () => {
             currentUsername: 'Alice',
             currentUserRole: 'User',
             activeUsers: [
-                { session: 1, name: 'Alice', channel_id: 1, isMuted: false, isDeafened: false },
-                { session: 2, name: 'Bob', channel_id: 1, isMuted: true, isDeafened: false }
+                { peerId: 'p1', name: 'Alice', channel_id: 1, isMuted: false, isDeafened: false, isSpeaking: false, avatar_url: null },
+                { peerId: 'p2', name: 'Bob', channel_id: 1, isMuted: true, isDeafened: false, isSpeaking: false, avatar_url: null }
             ],
             channels: [
-                { channel_id: 1, name: 'Lobby' },
-                { channel_id: 2, name: 'Gaming' }
+                { channel_id: 1, name: 'Lobby', parent_id: 0, description: '', temporary: false, position: 0, links: [] },
+                { channel_id: 2, name: 'Gaming', parent_id: 0, description: '', temporary: false, position: 1, links: [] }
             ],
             messages: [],
             setupListeners: mockSetupListeners,
-            disconnect: mockDisconnect,
-            toggleMute: mockToggleMute,
-            toggleDeaf: mockToggleDeaf
+            register: vi.fn(),
+            connect: mockConnect,
+            sendMessage: vi.fn(),
+            toggleEcho: mockToggleEcho,
+            clearConnectionError: vi.fn(),
+            connectionError: null,
+            isReconnecting: false
         });
 
         render(<App />);
-        screen.debug();
 
         // Chat window should be visible (confirms connected state)
         expect(screen.getByTestId('chat-window')).toBeInTheDocument();
 
         // Sidebar channels
-        expect(screen.getByText('Lobby')).toBeInTheDocument();
+        expect(screen.getAllByText('Lobby').length).toBeGreaterThan(0);
         expect(screen.getByText('Gaming')).toBeInTheDocument();
 
         // Users in channel (Alice in Lobby)
-        expect(screen.getByText('Alice')).toBeInTheDocument();
+        expect(screen.getAllByText('Alice').length).toBeGreaterThan(0);
         // Bob is also in Lobby (channel 1)
-        expect(screen.getByText('Bob')).toBeInTheDocument();
+        expect(screen.getAllByText('Bob').length).toBeGreaterThan(0);
 
         // Chat window should be visible
         expect(screen.getByTestId('chat-window')).toBeInTheDocument();
     });
 
-    it('toggles mute', () => {
+    it('triggers echo test action', () => {
         (useVoiceStore as any).mockReturnValue({
             isConnected: true,
-            isMuted: false, // Initial state
-            activeUsers: [],
-            channels: [],
+            isConnecting: false,
+            isReconnecting: false,
+            currentUsername: 'Alice',
+            activeUsers: [{ peerId: 'p1', name: 'Alice', channel_id: 1, isMuted: false, isDeafened: false, isSpeaking: false, avatar_url: null }],
+            channels: [{ channel_id: 1, name: 'Lobby', parent_id: 0, description: '', temporary: false, position: 0, links: [] }],
+            messages: [],
             setupListeners: mockSetupListeners,
-            toggleMute: mockToggleMute
+            connect: mockConnect,
+            register: vi.fn(),
+            sendMessage: vi.fn(),
+            toggleEcho: mockToggleEcho,
+            clearConnectionError: vi.fn(),
+            connectionError: null
         });
 
         render(<App />);
 
-        const muteBtn = screen.getByTitle('Mute');
-        fireEvent.click(muteBtn);
+        const echoBtn = screen.getByTitle('Toggle Loopback Test');
+        fireEvent.click(echoBtn);
 
-        expect(mockToggleMute).toHaveBeenCalled();
+        expect(mockToggleEcho).toHaveBeenCalled();
     });
 });

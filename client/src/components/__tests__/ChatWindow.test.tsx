@@ -6,8 +6,8 @@ import { ActiveUser, Channel, ChatMessage } from '../../types/voice';
 
 describe('ChatWindow', () => {
     const mockMessages: ChatMessage[] = [
-        { actor: 1, message: 'Hello world', timestamp: 1234567890, session: 1, channel_id: [1] },
-        { actor: 2, message: 'Hi there', timestamp: 1234567891, session: 2, channel_id: [1] }
+        { actorPeerId: 'p1', message: 'Hello world', timestamp: 1234567890, channel_id: 1 },
+        { actorPeerId: 'p2', message: 'Hi there', timestamp: 1234567891, channel_id: 1 }
     ];
 
     const mockUsers: ActiveUser[] = [

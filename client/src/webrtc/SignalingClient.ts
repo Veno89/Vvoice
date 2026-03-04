@@ -3,6 +3,7 @@ import {
     ServerMessage,
     ClientHello,
     JoinRoom,
+    LeaveRoom,
     ClientWebRTCOffer,
     ClientWebRTCAnswer,
     ClientWebRTCIceCandidate,
@@ -20,6 +21,7 @@ export class SignalingClient {
     private reconnectTimer: number | null = null;
 
     private authToken: string;
+    private clientId: string;
 
     private heartbeatTimer: number | null = null;
 
@@ -32,6 +34,9 @@ export class SignalingClient {
     constructor(url: string, authToken: string) {
         this.url = url;
         this.authToken = authToken;
+        this.clientId = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+            ? crypto.randomUUID()
+            : `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
     public get isConnected(): boolean {
@@ -124,6 +129,7 @@ export class SignalingClient {
         const hello: ClientHello = {
             type: 'client_hello',
             protocolVersion: this.protocolVersion,
+            clientId: this.clientId,
             authToken: this.authToken
         };
         this.send(hello);
@@ -134,6 +140,16 @@ export class SignalingClient {
             type: 'join_room',
             roomId,
             displayName
+        };
+        this.send(msg);
+    }
+
+
+    public leaveRoom(roomId: string) {
+        if (!this.isConnected) return;
+        const msg: LeaveRoom = {
+            type: 'leave_room',
+            roomId
         };
         this.send(msg);
     }

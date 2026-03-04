@@ -12,7 +12,7 @@ export const clientHelloSchema = baseSchema.extend({
   type: z.literal('client_hello'),
   protocolVersion: z.string(),
   clientId: z.string().min(1).max(128),
-  authToken: z.string().optional()
+  authToken: z.string().min(1)
 });
 
 export const joinRoomSchema = baseSchema.extend({

@@ -57,7 +57,8 @@ export function registerWebSocketServer(
       role: 'member',
       ws,
       authenticated: false,
-      peerIds: new Set()
+      peerIds: new Set(),
+      roomPeerIds: new Map()
     };
 
     connections.set(connectionId, state);
