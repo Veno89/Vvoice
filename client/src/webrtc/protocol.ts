@@ -29,6 +29,7 @@ export interface BaseMessage {
 export type ClientHello = {
     type: 'client_hello';
     protocolVersion: string;
+    clientId: string;
     authToken: string;
 };
 

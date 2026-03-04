@@ -121,6 +121,16 @@ export class RoomManager {
     return participant;
   }
 
+
+  findRoomIdByPeerId(peerId: string): string | undefined {
+    for (const room of this.rooms.values()) {
+      if (room.participants.has(peerId)) {
+        return room.id;
+      }
+    }
+    return undefined;
+  }
+
   findParticipantByPeerId(peerId: string): Participant | undefined {
     for (const room of this.rooms.values()) {
       const participant = room.participants.get(peerId);

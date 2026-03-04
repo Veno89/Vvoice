@@ -7,6 +7,7 @@ describe('Signaling Protocol Contract', () => {
             type: 'client_hello',
             protocolVersion: protocolVersion,
             clientId: 'test-client-123',
+            authToken: 'test-token',
         };
         const result = clientMessageSchema.safeParse(validHello);
         expect(result.success).toBe(true);

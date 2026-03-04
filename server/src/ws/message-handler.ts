@@ -17,6 +17,7 @@ export interface ConnectionState {
     ws: WebSocket;
     authenticated: boolean;
     peerIds: Set<string>;
+    roomPeerIds: Map<string, string>;
     avatarUrl?: string;
     bio?: string;
 }
@@ -80,6 +81,7 @@ export function handleClientMessage(
                     }
                 );
                 state.peerIds.add(joined.self.peerId);
+                state.roomPeerIds.set(msg.roomId, joined.self.peerId);
                 byPeerId.set(joined.self.peerId, state);
 
                 send(ws, {
@@ -119,6 +121,7 @@ export function handleClientMessage(
                 const removed = roomManager.leaveRoom(connectionId, msg.roomId);
                 for (const participant of removed) {
                     state.peerIds.delete(participant.peerId);
+                    state.roomPeerIds.delete(msg.roomId);
                     byPeerId.delete(participant.peerId);
                     broadcastRoom(roomManager, connections, msg.roomId, {
                         type: 'participant_left',
@@ -147,7 +150,7 @@ export function handleClientMessage(
                     return;
                 }
 
-                const senderPeerId = [...state.peerIds][0];
+                const senderPeerId = state.roomPeerIds.get(msg.roomId);
 
                 const timestamp = Date.now();
                 messageRepo.saveMessage(msg.roomId, senderPeerId || state.userId, state.displayName, msg.content);
@@ -167,7 +170,7 @@ export function handleClientMessage(
                     sendError(ws, 'permission_denied', 'Only admins can create channels');
                     return;
                 }
-                const channel = channelManager.createChannel(msg.name, msg.description ?? '');
+                channelManager.createChannel(msg.name, msg.description ?? '');
                 // Broadcast updated channel list to everyone
                 broadcastAll(connections, { type: 'channel_list', channels: channelManager.listChannels() });
                 break;
@@ -194,9 +197,15 @@ export function handleClientMessage(
                     return;
                 }
 
-                const senderPeerId = [...state.peerIds][0];
+                const roomId = roomManager.findRoomIdByPeerId(msg.toPeerId);
+                if (!roomId) {
+                    sendError(ws, 'peer_not_found', 'Target peer is not in a room');
+                    return;
+                }
+
+                const senderPeerId = state.roomPeerIds.get(roomId);
                 if (!senderPeerId) {
-                    sendError(ws, 'not_in_room', 'Join a room before signaling');
+                    sendError(ws, 'not_in_room', 'Join the same room before signaling');
                     return;
                 }
 

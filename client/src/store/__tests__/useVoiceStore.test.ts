@@ -60,7 +60,7 @@ describe('useVoiceStore', () => {
         const updatedState = useVoiceStore.getState();
         expect(updatedState.isConnected).toBe(true);
         expect(updatedState.currentUsername).toBe('Alice');
-        expect(updatedState.currentChannelId).toBe(1); // Auto-joins lobby (id 1)
+        expect(updatedState.currentChannelId).toBeNull(); // set after room_joined event
     });
 
     it('handles connection failure', async () => {
@@ -73,8 +73,6 @@ describe('useVoiceStore', () => {
             status: 401
         }));
 
-        // Mock alert to prevent jsdom error
-        vi.stubGlobal('alert', vi.fn());
         vi.stubGlobal('console', { error: vi.fn(), log: vi.fn() }); // Silence error logs
 
         await connect('Alice', 'pass', 'host', { device: null, vad: 0 });
@@ -82,6 +80,29 @@ describe('useVoiceStore', () => {
         const state = useVoiceStore.getState();
         expect(state.isConnected).toBe(false);
         expect(state.isConnecting).toBe(false);
+    });
+
+
+    it('includes self user in active users on room_joined', async () => {
+        const { connect } = useVoiceStore.getState();
+        await connect('Alice', 'pass', 'host', { device: null, vad: 0 });
+
+        const mockSignaling = (SignalingClient as any).mock.instances[0];
+        mockSignaling.onOpen();
+
+        mockSignaling.onMessage({
+            type: 'room_joined',
+            roomId: '1',
+            selfPeerId: 'peer-self',
+            participants: [{ peerId: 'peer-bob', displayName: 'Bob', muted: false }],
+            iceServers: []
+        });
+
+        const state = useVoiceStore.getState();
+        expect(state.activeUsers).toHaveLength(2);
+        expect(state.activeUsers[0].peerId).toBe('peer-self');
+        expect(state.activeUsers[0].name).toBe('Alice');
+        expect(state.activeUsers[1].peerId).toBe('peer-bob');
     });
 
     it('updates state on participant_joined', async () => {
@@ -107,11 +128,55 @@ describe('useVoiceStore', () => {
         expect(state.activeUsers[0].name).toBe('Bob');
     });
 
+
+    it('leaves previous channel before joining a new one', async () => {
+        const { connect, joinChannel } = useVoiceStore.getState();
+        await connect('Alice', 'p', 'h', { device: null, vad: 0 });
+        const mockSignaling = (SignalingClient as any).mock.instances[0];
+
+        mockSignaling.onOpen();
+        useVoiceStore.setState({ currentChannelId: 1, isConnected: true });
+
+        await joinChannel(2);
+
+        expect(mockSignaling.leaveRoom).toHaveBeenCalledWith('1');
+        expect(mockSignaling.joinRoom).toHaveBeenCalledWith('2', 'Alice');
+        expect(useVoiceStore.getState().currentChannelId).toBe(2);
+    });
+
+
+    it('upserts participant_joined by peerId to avoid duplicates', async () => {
+        const { connect } = useVoiceStore.getState();
+        await connect('Alice', 'pass', 'host', { device: null, vad: 0 });
+
+        const mockSignaling = (SignalingClient as any).mock.instances[0];
+        mockSignaling.onOpen();
+
+        const joinedMsg = {
+            type: 'participant_joined',
+            roomId: '1',
+            peerId: 'peer-bob',
+            displayName: 'Bob',
+            muted: false,
+            avatarUrl: 'https://example.com/a.png'
+        };
+
+        mockSignaling.onMessage(joinedMsg);
+        mockSignaling.onMessage({ ...joinedMsg, muted: true, avatarUrl: 'https://example.com/b.png' });
+
+        const state = useVoiceStore.getState();
+        expect(state.activeUsers).toHaveLength(1);
+        expect(state.activeUsers[0].peerId).toBe('peer-bob');
+        expect(state.activeUsers[0].isMuted).toBe(true);
+        expect(state.activeUsers[0].avatar_url).toBe('https://example.com/b.png');
+    });
+
     it('sends chat message', async () => {
         const { connect, sendMessage } = useVoiceStore.getState();
         await connect('Alice', 'p', 'h', { device: null, vad: 0 });
         const mockSignaling = (SignalingClient as any).mock.instances[0];
         mockSignaling.onOpen();
+        useVoiceStore.setState({ currentChannelId: 1, isConnected: true });
 
         await sendMessage('Hello World');
 
@@ -125,6 +190,7 @@ describe('useVoiceStore', () => {
         const mockRTC = (WebRTCManager as any).mock.instances[0];
 
         mockSignaling.onOpen();
+        useVoiceStore.setState({ currentChannelId: 1, isConnected: true });
 
         await toggleMute(); // Mute
 

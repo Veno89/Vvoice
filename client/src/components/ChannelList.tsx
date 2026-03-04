@@ -38,7 +38,7 @@ export function ChannelList() {
                             {/* Users in this channel - Mini User List */}
                             <div className="channel-users">
                                 {activeUsers.filter(u => (u.channel_id || 0) === ch.channel_id).map(user => (
-                                    <UserProfileTooltip key={user.session} user={user}>
+                                    <UserProfileTooltip key={user.peerId} user={user}>
                                         <div className="sidebar-user">
                                             <div className="user-avatar-small">
                                                 {user.avatar_url ? (
@@ -54,7 +54,7 @@ export function ChannelList() {
                                                 )}
                                                 {user.isSpeaking && <div className="speaking-dot"></div>}
                                             </div>
-                                            <span className="sidebar-username">{user.name ?? `User ${user.session}`}</span>
+                                            <span className="sidebar-username">{user.name ?? `User ${user.peerId.slice(0, 8)}`}</span>
                                         </div>
                                     </UserProfileTooltip>
                                 ))}

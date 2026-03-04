@@ -12,6 +12,13 @@ type ChatWindowProps = {
   onSendMessage: (message: string) => Promise<void>;
 };
 
+
+function toEpochMs(ts?: number): number {
+  if (!ts) return Date.now();
+  // Heuristic: 13-digit-ish values are already milliseconds, 10-digit-ish are seconds.
+  return ts > 1_000_000_000_000 ? ts : ts * 1000;
+}
+
 export function ChatWindow({
   messages,
   activeUsers,
@@ -53,14 +60,14 @@ export function ChatWindow({
         )}
 
         {messages.map((msg, i) => {
-          const authorUser = activeUsers.find((u) => u.session === msg.actor);
+          const authorUser = activeUsers.find((u) => u.peerId === msg.actorPeerId);
           let authorName = authorUser?.name;
 
           if (!authorName) {
             if (msg.message.startsWith('[History]')) {
               authorName = ""; // Hide name header for history, since it's in the body
-            } else if (msg.actor) {
-              authorName = `User ${msg.actor}`;
+            } else if (msg.actorPeerId) {
+              authorName = `User ${msg.actorPeerId.slice(0, 8)}`;
             } else {
               authorName = "System";
             }
@@ -104,7 +111,7 @@ export function ChatWindow({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                   <span style={{ fontSize: '0.85rem', fontWeight: 600, color: isMe ? 'var(--primary)' : 'var(--text-main)' }}>{authorName}</span>
                   <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    {new Date((msg.timestamp || Date.now() / 1000) * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {new Date(toEpochMs(msg.timestamp)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
                 <div className="glass-panel" style={{
