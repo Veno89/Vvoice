@@ -8,9 +8,6 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# Copy migrations to build output
-COPY src/db/migrations ./dist/db/migrations
-
 FROM node:20-alpine AS runner
 
 WORKDIR /app
