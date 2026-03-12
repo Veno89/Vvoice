@@ -16,6 +16,7 @@ WORKDIR /app
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/db/migrations ./dist/db/migrations
 
 # Create data directory
 RUN mkdir -p data && chown -R 1000:1000 /app
