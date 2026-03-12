@@ -18,7 +18,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 
 # Create data directory
-RUN mkdir -p data
+RUN mkdir -p data && chown -R 1000:1000 /app
 
 EXPOSE 3000
 
